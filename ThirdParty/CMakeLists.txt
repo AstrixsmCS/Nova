@@ -1,7 +1,8 @@
-# spdlog
+# ==== spdlog ====
 add_subdirectory(spdlog)
 
 # ==== SDL ====
+
 set(SDL_SHARED       OFF)
 set(SDL_STATIC       ON)
 set(SDL_TEST_LIBRARY OFF)
@@ -27,3 +28,6 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/SDL3 SYSTEM)
 
 target_compile_definitions(SDL3-static INTERFACE SDL_MAIN_HANDLED)
 
+# ==== JSON ====
+
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/json SYSTEM)

@@ -4,6 +4,7 @@
 #include "Version.hpp"
 
 #include "Events/EventBus.hpp"
+#include "Asset/AssetManager.hpp"
 
 Application::Application(const ApplicationSpecification &specification)
 	: m_Specification(specification)
@@ -12,6 +13,8 @@ Application::Application(const ApplicationSpecification &specification)
 
 	NV_TRACE("Nova Engine {}", NV_VERSION);
 	NV_TRACE("Initializing...");
+
+	AssetManager::Initialize("../Assets");
 
 	m_Specification.Window.Title = m_Specification.Name;
 	m_Window = Window::Create(m_Specification.Window);
@@ -41,6 +44,8 @@ Application::~Application()
 
 	m_Window.reset();
 	EventBus::Clear();
+
+	AssetManager::Shutdown();
 
 	Log::Shutdown();
 }

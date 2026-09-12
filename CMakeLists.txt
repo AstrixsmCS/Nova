@@ -28,6 +28,7 @@ target_compile_definitions(Nova PRIVATE
 		$<$<CONFIG:Release>:NV_RELEASE>
 
 		NOMINMAX
+		WIN32_LEAN_AND_MEAN
 )
 
 # == Compiler options ==
@@ -54,4 +55,5 @@ add_subdirectory(ThirdParty)
 target_link_libraries(Nova PRIVATE
 		spdlog::spdlog
 		SDL3::SDL3-static
+		nlohmann_json::nlohmann_json
 )
