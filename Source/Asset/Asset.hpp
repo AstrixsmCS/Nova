@@ -9,7 +9,7 @@
 enum class AssetType : uint8_t
 {
 	None = 0,
-	Script
+	Scene
 };
 
 enum class AssetFlag : uint8_t { None = 0, Missing = 1 << 0, Invalid = 1 << 1 };

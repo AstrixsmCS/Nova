@@ -7,6 +7,9 @@
 #include "Events/KeyEvent.hpp"
 #include "Events/MouseEvent.hpp"
 
+#include <imgui.h>
+#include <backends/imgui_impl_sdl3.h>
+
 #include <cassert>
 
 static void SDLErrorCallback(const char* context)
@@ -86,6 +89,11 @@ void Window::PollEvents()
 
 	while (SDL_PollEvent(&m_Event))
 	{
+		if (ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData)
+		{
+			ImGui_ImplSDL3_ProcessEvent(&m_Event);
+		}
+
 		switch (m_Event.type)
 		{
 			case SDL_EVENT_QUIT:

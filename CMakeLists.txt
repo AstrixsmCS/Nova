@@ -56,4 +56,7 @@ target_link_libraries(Nova PRIVATE
 		spdlog::spdlog
 		SDL3::SDL3-static
 		nlohmann_json::nlohmann_json
+		EnTT::EnTT
+		glm-header-only
+		imgui::imgui
 )

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Asset.hpp"
-
 #include <filesystem>
 
 // Base type for the in-memory asset payload an importer produces.

@@ -7,15 +7,13 @@
 
 inline const std::unordered_map<std::string, AssetType> AssetExtensionMap =
 {
-	{ ".lua",       AssetType::Script },
+	{ ".nscene",       AssetType::Scene }
 };
 
 inline std::string_view GetAssetCacheExtension(AssetType type)
 {
 	switch (type)
 	{
-		case AssetType::Script:         return ".lua";
-
 		default:                       return {};
 	}
 }

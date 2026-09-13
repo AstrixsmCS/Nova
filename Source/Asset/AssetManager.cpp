@@ -7,7 +7,6 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <charconv>
 #include <format>
 #include <fstream>
@@ -599,7 +598,7 @@ std::filesystem::path AssetManager::ResolvePath(const std::filesystem::path& rel
 std::filesystem::path AssetManager::BucketPath(AssetHandle handle, const char* directory, const std::string& extension)
 {
 	const auto id       = std::format("{:016x}", static_cast<uint64_t>(handle));
-	const auto relative = std::filesystem::path(".n-engine") / directory / id.substr(0, 2) / (id.substr(2) + extension);
+	const auto relative = std::filesystem::path(".n-engine") / directory / id.substr(0, 2) / (id + extension);
 	const auto resolved = ResolvePath(relative);
 	return resolved == s_Root / relative ? resolved : std::filesystem::path{};
 }

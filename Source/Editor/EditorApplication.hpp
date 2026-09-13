@@ -1,8 +1,7 @@
 #pragma once
 
 #include "Core/Application.hpp"
-
-#include <SDL3/SDL.h>
+#include "Renderer/Renderer.hpp"
 
 class EditorApplication final : public Application
 {
@@ -12,8 +11,8 @@ public:
 
 protected:
 	void OnInitialize() override;
-	void OnUpdate() override;
-	void OnShutdown() override;
+	void OnUpdate()     override;
+	void OnShutdown()   override;
 private:
-	SDL_Renderer* m_Renderer = nullptr; //TODO: temp until I add vulkan
+	Renderer m_Renderer;
 };

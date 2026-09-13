@@ -2,13 +2,7 @@
 
 #include "Asset.hpp"
 
-#include <nlohmann/json.hpp>
-
-#include <cstddef>
 #include <cstdint>
-#include <filesystem>
-#include <span>
-#include <vector>
 
 struct AssetHeader
 {
