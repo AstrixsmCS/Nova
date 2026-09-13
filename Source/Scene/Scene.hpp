@@ -45,4 +45,5 @@ private:
 	EntityMap m_EntityIDMap;
 
 	friend class Entity;
+	friend class SceneSerializer;
 };

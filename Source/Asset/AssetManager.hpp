@@ -9,8 +9,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-// Synchronous, main-thread-only. All file I/O, path resolution, and persistence
-// live here. AssetRegistry is a dumb map owned by this class.
+// Synchronous, main-thread-only. Coordinates registry persistence, importing,
+// cache loading, and finalization. Registry remains a map owned by this class.
 class AssetManager
 {
 public:
@@ -29,13 +29,15 @@ public:
 		return std::dynamic_pointer_cast<TAsset>(GetAsset(handle));
 	}
 
-	// Conversion only. Directly loaded assets (such as Lua) return false.
+	// Ensure a current cache artifact, or force rebuilding it. Applies to all types.
 	static bool Import(AssetHandle handle);
 	static bool Reimport(AssetHandle handle);
 
 	static bool IsAssetLoaded(AssetHandle handle);
 	static bool IsAssetMissing(AssetHandle handle);
 	static void UnloadAsset(AssetHandle handle);
+
+	static const std::filesystem::path& GetRoot() { return s_Root; }
 
 	static const AssetRegistry& GetRegistry() { return s_Registry; }
 private:
@@ -52,7 +54,6 @@ private:
 	static std::filesystem::path GetCachePath(AssetHandle handle);
 	static std::filesystem::path BucketPath(AssetHandle handle, const char* directory, const std::string& extension);
 	static bool IsSourcePath(const std::filesystem::path& path);
-	static bool RequiresImport(const std::filesystem::path& path);
 	static std::string Extension(const std::filesystem::path& path);
 
 	static bool EnsureImported(AssetHandle handle, bool force);

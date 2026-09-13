@@ -23,5 +23,8 @@ out/
 lfs/
 hooks/
 
-# Meta Files
-**.meta
+# Generated Asset Cache
+/Assets/.n-engine/cache/
+
+# ImGui Layout (temporary editor state)
+imgui.ini

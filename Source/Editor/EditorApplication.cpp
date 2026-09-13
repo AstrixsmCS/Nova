@@ -1,8 +1,5 @@
 #include "EditorApplication.hpp"
 
-#include "Core/Log.hpp"
-#include "Asset/AssetManager.hpp"
-
 EditorApplication::EditorApplication(const ApplicationSpecification& specification)
 	: Application(specification)
 {

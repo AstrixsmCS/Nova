@@ -9,6 +9,9 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# === Vulkan ===
+find_package(Vulkan REQUIRED COMPONENTS volk)
+
 # === Target ===
 
 add_executable(Nova)
@@ -59,4 +62,7 @@ target_link_libraries(Nova PRIVATE
 		EnTT::EnTT
 		glm-header-only
 		imgui::imgui
+		Vulkan::Vulkan
+		Vulkan::volk
+		slang::slang
 )

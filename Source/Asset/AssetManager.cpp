@@ -2,12 +2,18 @@
 
 #include "AssetExtensions.hpp"
 #include "AssetSerializer.hpp"
+
+#include "Importers/SceneImporter.hpp"
+#include "Scene/Scene.hpp"
+#include "Scene/SceneSerializer.hpp"
+
 #include "Core/Log.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <format>
 #include <fstream>
 #include <map>
@@ -28,11 +34,35 @@ namespace
 		return std::string(utf8.begin(), utf8.end());
 	}
 
+	bool Fingerprint(const std::filesystem::path& path, std::string& result)
+	{
+		std::ifstream stream(path, std::ios::binary);
+		if (!stream)
+			return false;
+		// FNV-1a: change detection, not a cryptographic integrity check.
+		uint64_t hash = 14695981039346656037ULL;
+		char buffer[16384];
+		while (stream.read(buffer, sizeof(buffer)) || stream.gcount() != 0)
+		{
+			for (std::streamsize i = 0; i < stream.gcount(); ++i)
+			{
+				hash ^= static_cast<unsigned char>(buffer[i]);
+				hash *= 1099511628211ULL;
+			}
+		}
+		if (stream.bad() || !stream.eof())
+			return false;
+		result = std::format("{:016x}", hash);
+		return true;
+	}
+
 	bool WriteJSON(const std::filesystem::path& path, const nlohmann::json& data)
 	{
 		std::error_code ec;
 		if (path.has_parent_path())
 			std::filesystem::create_directories(path.parent_path(), ec);
+		if (ec)
+			return false;
 
 		const auto tmp = path.parent_path() / (path.filename().string() + ".tmp");
 		{
@@ -97,7 +127,7 @@ void AssetManager::Initialize(const std::filesystem::path& root)
 
 	// Importers are added here as they are implemented, e.g.:
 	// s_Importers[AssetType::Mesh] = std::make_unique<MeshImporter>();
-	// Lua is read directly and does not need an importer.
+	s_Importers[AssetType::Scene] = std::make_unique<SceneImporter>();
 
 	if (!LoadRegistry())
 	{
@@ -116,7 +146,7 @@ void AssetManager::Initialize(const std::filesystem::path& root)
 
 void AssetManager::Update()
 {
-	// Reserved for async import jobs and GPU upload queue.
+	// No background work in this synchronous version.
 }
 
 void AssetManager::Shutdown()
@@ -352,28 +382,16 @@ std::shared_ptr<Asset> AssetManager::GetAsset(AssetHandle handle)
 
 	const auto metadata = s_Registry.Get(handle);
 
-	auto sourcePath = ResolvePath(metadata.Path);
-	if (sourcePath.empty())
-		return nullptr;
-
 	s_LoadingAssets.insert(handle);
 
-	if (RequiresImport(metadata.Path))
+	if (!EnsureImported(handle, false))
 	{
-		if (!EnsureImported(handle, false))
-		{
-			s_LoadingAssets.erase(handle);
-			return nullptr;
-		}
-		sourcePath = GetCachePath(handle);
-		if (sourcePath.empty())
-		{
-			s_LoadingAssets.erase(handle);
-			return nullptr;
-		}
+		s_LoadingAssets.erase(handle);
+		return nullptr;
 	}
 
-	auto data = DeserializeAsset(metadata.Type, sourcePath);
+	const auto cachePath = GetCachePath(handle);
+	auto data = cachePath.empty() ? nullptr : DeserializeAsset(metadata.Type, cachePath);
 	auto asset = data ? FinalizeAsset(metadata.Type, *data) : nullptr;
 	s_LoadingAssets.erase(handle);
 
@@ -395,9 +413,13 @@ std::unique_ptr<AssetData> AssetManager::DeserializeAsset(AssetType type, const 
 {
 	switch (type)
 	{
-		// Add implemented types here. For example, a mesh case allocates
-		// MeshAssetData and calls AssetSerializer::DeserializeMesh(path, *data).
-		// Native scenes can delegate to SceneSerializer without importing.
+		case AssetType::Scene:
+		{
+			auto data = std::make_unique<SceneAssetData>();
+			if (!AssetSerializer::DeserializeScene(path, *data))
+				return nullptr;
+			return data;
+		}
 		default:
 			NV_ERROR("AssetManager: no deserializer for type {}", static_cast<uint32_t>(type));
 			return nullptr;
@@ -408,8 +430,18 @@ std::shared_ptr<Asset> AssetManager::FinalizeAsset(AssetType type, AssetData& da
 {
 	switch (type)
 	{
-		// Create runtime Mesh/Texture objects from their CPU payloads here
-		// once those types and the renderer are implemented.
+		case AssetType::Scene:
+		{
+			const auto& sceneData = static_cast<const SceneAssetData&>(data);
+			auto scene = std::make_shared<Scene>();
+
+			SceneSerializer serializer(*scene);
+
+			if (!serializer.DeserializeFromJSON(sceneData.Document))
+				return nullptr;
+
+			return scene;
+		}
 		default:
 			NV_ERROR("AssetManager: no finalizer for type {}", static_cast<uint32_t>(type));
 			return nullptr;
@@ -432,8 +464,6 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 		return false;
 
 	const auto metadata = s_Registry.Get(handle);
-	if (!RequiresImport(metadata.Path))
-		return false;
 
 	const auto source = ResolvePath(metadata.Path);
 	if (source.empty())
@@ -470,23 +500,37 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 			meta = { { "version", 1 }, { "id", std::format("{:016x}", static_cast<uint64_t>(handle)) } };
 	}
 
-	// Up-to-date check: source size + mtime.
+	const auto id = std::format("{:016x}", static_cast<uint64_t>(handle));
+	if ((meta.contains("version") && meta["version"] != 1) ||
+		(meta.contains("id") && meta["id"] != id))
+		return false;
+	// Compatibility with metadata from the previous revision. These importers
+	// never supported nonempty settings; do not silently discard such edits.
+	if (meta.contains("settings") &&
+		(!meta["settings"].is_object() || !meta["settings"].empty()))
+	{
+		NV_ERROR("AssetManager: this importer does not support the old metadata settings");
+		return false;
+	}
+	meta.erase("settings");
+
 	std::error_code ec;
-	const auto size     = std::filesystem::file_size(source, ec);
-	if (ec) return false;
-	const auto modified = std::filesystem::last_write_time(source, ec);
-	if (ec) return false;
+	std::string sourceHash;
+	if (!std::filesystem::is_regular_file(source, ec) || ec || !Fingerprint(source, sourceHash))
+		return false;
 
 	const nlohmann::json buildSig = {
-		{ "source_size",     size                                  },
-		{ "source_modified", modified.time_since_epoch().count()   }
+		{ "source_hash", sourceHash },
+		{ "hash_algorithm", "fnv1a64" },
+		{ "importer_version", importerIt->second->GetVersion() },
+		{ "type", static_cast<uint32_t>(metadata.Type) }
 	};
 
 	// Skip conversion if the source signature matches and the cache exists.
 	if (!force && meta.contains("built") && meta["built"] == buildSig)
 	{
 		std::error_code cec;
-		if (std::filesystem::exists(cache, cec) && !cec)
+		if (std::filesystem::is_regular_file(cache, cec) && !cec)
 			return true;
 	}
 
@@ -502,7 +546,13 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 	}
 
 	const auto tmp = cache.parent_path() / (cache.stem().string() + ".pending" + cache.extension().string());
-	const bool ok  = importerIt->second->Import(source, tmp);
+	// Reject staging-path aliases before an importer writes anything.
+	if (ResolvePath(tmp.lexically_relative(s_Root)) != tmp)
+	{
+		s_ImportingAssets.erase(handle);
+		return false;
+	}
+	const bool ok = importerIt->second->Import(source, tmp);
 
 	if (!ok)
 	{
@@ -512,7 +562,7 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 		return false;
 	}
 
-	// Atomic rename.
+	// Commit only after the importer has successfully written a stable artifact.
 #if defined(_WIN32)
 	const bool committed = MoveFileExW(tmp.c_str(), cache.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 #else
@@ -528,6 +578,8 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 	}
 
 	UnloadAsset(handle);
+	meta["version"] = 1;
+	meta["id"] = id;
 	meta["built"] = buildSig;
 	const bool saved = WriteJSON(metaPath, meta);
 	s_ImportingAssets.erase(handle);
@@ -628,19 +680,6 @@ bool AssetManager::IsSourcePath(const std::filesystem::path& path)
 		return false;
 	const auto normalized = path.lexically_normal();
 	return *normalized.begin() != ".n-engine" && normalized != "AssetRegistry.nvr" && *normalized.begin() != "..";
-}
-
-bool AssetManager::RequiresImport(const std::filesystem::path& path)
-{
-	const auto ext = Extension(path);
-	// Classification is by source extension: .gltf requires conversion,
-	// while an existing .nmesh is deserialized directly. A supported
-	// extension still needs an implemented importer and deserializer.
-	return ext == ".gltf" || ext == ".glb" ||
-		   ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".hdr" ||
-		   ext == ".slang";
-	// Lua/native Nova files load directly. Decide audio/font conversion
-	// when implementing those types; neither has a load path here yet.
 }
 
 std::string AssetManager::Extension(const std::filesystem::path& path)

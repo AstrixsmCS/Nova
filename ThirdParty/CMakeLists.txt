@@ -61,7 +61,7 @@ add_library(imgui STATIC
 		${CMAKE_CURRENT_LIST_DIR}/imgui/imgui_widgets.cpp
 		${CMAKE_CURRENT_LIST_DIR}/imgui/imgui_demo.cpp
 		${CMAKE_CURRENT_LIST_DIR}/imgui/backends/imgui_impl_sdl3.cpp
-		${CMAKE_CURRENT_LIST_DIR}/imgui/backends/imgui_impl_sdlrenderer3.cpp
+		${CMAKE_CURRENT_LIST_DIR}/imgui/backends/imgui_impl_vulkan.cpp
 )
 
 add_library(imgui::imgui ALIAS imgui)
@@ -73,4 +73,13 @@ target_include_directories(imgui PUBLIC
 
 target_compile_features(imgui PUBLIC cxx_std_17)
 
-target_link_libraries(imgui PUBLIC SDL3-static)
+target_compile_definitions(imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
+
+target_link_libraries(imgui PUBLIC SDL3-static Vulkan::volk)
+
+# ==== Slang ====
+add_library(slang INTERFACE)
+add_library(slang::slang ALIAS slang)
+target_include_directories(slang INTERFACE "$ENV{VULKAN_SDK}/Include/slang")
+find_library(SLANG_LIB NAMES slang slang.lib HINTS "$ENV{VULKAN_SDK}/Lib" REQUIRED)
+target_link_libraries(slang INTERFACE ${SLANG_LIB})

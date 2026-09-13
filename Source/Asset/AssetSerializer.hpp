@@ -3,6 +3,9 @@
 #include "Asset.hpp"
 
 #include <cstdint>
+#include <filesystem>
+
+struct SceneAssetData;
 
 struct AssetHeader
 {
@@ -16,7 +19,5 @@ class AssetSerializer
 {
 public:
 	// Serialize/Deserialize pairs are added here as importers are implemented.
-	// e.g.:
-	//   static bool SerializeMesh  (const std::filesystem::path& path, const MeshAssetData& data);
-	//   static bool DeserializeMesh(const std::filesystem::path& path, MeshAssetData& outData);
+	static bool DeserializeScene(const std::filesystem::path& path, SceneAssetData& data);
 };
