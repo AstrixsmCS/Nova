@@ -25,12 +25,15 @@ public:
 	void Run();
 	void Close();
 
+	inline Window& GetWindow() { return *m_Window; }
+
+	static inline Application& Get() { return *s_Instance; }
+
 	static const char* GetConfigurationName();
 	static const char* GetPlatformName();
-protected:
-	Window& GetWindow() { return *m_Window; }
-	const Window& GetWindow() const { return *m_Window; }
 
+	const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+protected:
 	virtual void OnInitialize() {}
 	virtual void OnUpdate() {}
 	virtual void OnShutdown() {}
@@ -44,6 +47,7 @@ private:
 	std::unique_ptr<Window> m_Window;
 	ApplicationSpecification m_Specification;
 
-	bool m_Running = true;
-	bool m_Minimized = false;
+	bool m_Running = true, m_Minimized = false;
+
+	static Application* s_Instance;
 };

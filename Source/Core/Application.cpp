@@ -6,15 +6,19 @@
 #include "Events/EventBus.hpp"
 #include "Asset/AssetManager.hpp"
 
+#include "Renderer/Renderer.hpp"
+
+Application* Application::s_Instance = nullptr;
+
 Application::Application(const ApplicationSpecification &specification)
 	: m_Specification(specification)
 {
+	s_Instance = this;
+
 	Log::Initialize();
 
 	NV_TRACE("Nova Engine {}", NV_VERSION);
 	NV_TRACE("Initializing...");
-
-	AssetManager::Initialize("../Assets");
 
 	m_Specification.Window.Title = m_Specification.Name;
 	m_Window = Window::Create(m_Specification.Window);
@@ -22,30 +26,25 @@ Application::Application(const ApplicationSpecification &specification)
 	if (m_Specification.Window.Mode == WindowMode::Windowed)
 		m_Window->CenterWindow();
 
-	EventBus::Subscribe<WindowResizeEvent>([this](WindowResizeEvent& e)
-	{
-		e.m_Handled |= OnWindowResize(e);
-	});
+	Renderer::Initialize(m_Window->GetNativeWindow());
 
-	EventBus::Subscribe<WindowMinimizeEvent>([this](WindowMinimizeEvent& e)
-	{
-		e.m_Handled |= OnWindowMinimize(e);
-	});
+	AssetManager::Initialize("Assets");
 
-	EventBus::Subscribe<WindowCloseEvent>([this](WindowCloseEvent& e)
-	{
-		e.m_Handled |= OnWindowClose(e);
-	});
+	EventBus::Subscribe<WindowResizeEvent>([this](WindowResizeEvent& e) { e.m_Handled |= OnWindowResize(e); });
+	EventBus::Subscribe<WindowMinimizeEvent>([this](WindowMinimizeEvent& e) { e.m_Handled |= OnWindowMinimize(e); });
+	EventBus::Subscribe<WindowCloseEvent>([this](WindowCloseEvent& e) { e.m_Handled |= OnWindowClose(e); });
 }
 
 Application::~Application()
 {
 	NV_TRACE("Shutting down...");
 
-	m_Window.reset();
 	EventBus::Clear();
 
 	AssetManager::Shutdown();
+	Renderer::Shutdown();
+
+	m_Window.reset();
 
 	Log::Shutdown();
 }
@@ -57,9 +56,15 @@ void Application::Run()
 	{
 		ProcessEvents();
 
-		OnUpdate();
-
-		SDL_Delay(1); // Frame pacing for now
+		if (!m_Minimized)
+		{
+			if (Renderer::BeginFrame())
+			{
+				OnUpdate();
+				Renderer::EndFrame();
+				Renderer::Present();
+			}
+		}
 	}
 	OnShutdown();
 }
@@ -78,6 +83,11 @@ void Application::ProcessEvents()
 
 bool Application::OnWindowResize(WindowResizeEvent& e)
 {
+	if (e.GetWidth() == 0 || e.GetHeight() == 0)
+		return false;
+
+	Renderer::GetSwapChain().RequestResize();
+
 	return false;
 }
 

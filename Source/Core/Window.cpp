@@ -116,7 +116,6 @@ void Window::PollEvents()
 					break;
 
 				const uint32_t width = static_cast<uint32_t>(m_Event.window.data1);
-
 				const uint32_t height = static_cast<uint32_t>(m_Event.window.data2);
 
 				m_Specification.Width = width;

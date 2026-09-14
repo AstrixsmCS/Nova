@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/Application.hpp"
-#include "Renderer/Renderer.hpp"
 
 class EditorApplication final : public Application
 {
@@ -14,5 +13,4 @@ protected:
 	void OnUpdate()     override;
 	void OnShutdown()   override;
 private:
-	Renderer m_Renderer;
 };

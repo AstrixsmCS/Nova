@@ -65,4 +65,5 @@ target_link_libraries(Nova PRIVATE
 		Vulkan::Vulkan
 		Vulkan::volk
 		slang::slang
+		fastgltf::fastgltf
 )
