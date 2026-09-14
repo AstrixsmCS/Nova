@@ -8,6 +8,8 @@
 
 #include "Renderer/Renderer.hpp"
 
+#include <glm/glm.hpp>
+
 Application* Application::s_Instance = nullptr;
 
 Application::Application(const ApplicationSpecification &specification)
@@ -52,19 +54,28 @@ Application::~Application()
 void Application::Run()
 {
 	OnInitialize();
+
+	m_LastFrameTime = Window::GetTime();
+
 	while(m_Running)
 	{
+		const float time = Window::GetTime();
+		m_Frametime      = time - m_LastFrameTime;
+		m_TimeStep       = glm::min<float>(m_Frametime, 0.333f);
+		m_LastFrameTime  = time;
+
 		ProcessEvents();
 
 		if (!m_Minimized)
 		{
 			if (Renderer::BeginFrame())
 			{
-				OnUpdate();
+				OnUpdate(m_TimeStep);
 				Renderer::EndFrame();
 				Renderer::Present();
 			}
 		}
+		//NV_INFO("Frame time: {:.4f}ms | Timestep: {:.4f}ms | FPS: {:.1f}", m_Frametime * 1000.0f, m_TimeStep  * 1000.0f, 1.0f / m_Frametime);
 	}
 	OnShutdown();
 }

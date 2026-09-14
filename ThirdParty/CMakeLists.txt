@@ -83,3 +83,15 @@ add_library(slang::slang ALIAS slang)
 target_include_directories(slang INTERFACE "$ENV{VULKAN_SDK}/Include/slang")
 find_library(SLANG_LIB NAMES slang slang.lib HINTS "$ENV{VULKAN_SDK}/Lib" REQUIRED)
 target_link_libraries(slang INTERFACE ${SLANG_LIB})
+
+# ==== MikkTSpace ====
+
+add_library(mikktspace STATIC ${CMAKE_CURRENT_LIST_DIR}/MikkTSpace/mikktspace.c)
+add_library(mikktspace::mikktspace ALIAS mikktspace)
+target_include_directories(mikktspace PUBLIC ${CMAKE_CURRENT_LIST_DIR}/MikkTSpace)
+
+# ==== stb (Single header libraries) ====
+
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${CMAKE_CURRENT_LIST_DIR}/stb)
+add_library(stb::stb ALIAS stb)

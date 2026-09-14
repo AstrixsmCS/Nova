@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Core/TimeStep.hpp"
+
 #include <glm/glm.hpp>
 
 class Camera
@@ -8,7 +10,7 @@ public:
 	Camera() = default;
 	Camera(float fov, float aspectRatio, float nearClip, float farClip);
 
-	void OnUpdate(float deltaTime = 1.0f / 60.0f);
+	void OnUpdate(Timestep ts);
 
 	void SetPerspective(float fov, float aspectRatio, float nearClip, float farClip);
 

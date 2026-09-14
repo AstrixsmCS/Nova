@@ -13,11 +13,11 @@ Camera::Camera(float fov, float aspectRatio, float nearClip, float farClip)
 	UpdateView();
 }
 
-void Camera::OnUpdate(float deltaTime)
+void Camera::OnUpdate(Timestep ts)
 {
 	const bool* keyboard = SDL_GetKeyboardState(nullptr);
 
-	const float velocity = m_MoveSpeed * deltaTime;
+	const float velocity = m_MoveSpeed * ts;
 
 	const glm::vec3 forward = GetForwardDirection();
 

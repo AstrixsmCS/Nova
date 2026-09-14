@@ -38,7 +38,6 @@ target_compile_definitions(Nova PRIVATE
 
 if(MSVC)
 	target_compile_options(Nova PRIVATE
-			/W4
 			/MP
 			/Gy
 			/Zc:preprocessor
@@ -66,4 +65,6 @@ target_link_libraries(Nova PRIVATE
 		Vulkan::volk
 		slang::slang
 		fastgltf::fastgltf
+		mikktspace::mikktspace
+		stb::stb
 )

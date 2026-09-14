@@ -218,3 +218,32 @@ VkSamplerAddressMode ToVulkan(SamplerWrap wrap);
 VkPrimitiveTopology ToVulkan(Topology topology);
 
 VkColorSpaceKHR ToVulkan(ColorSpace colorSpace);
+
+void InsertImageMemoryBarrier(
+	VkCommandBuffer cmdbuffer,
+	VkImage image,
+	VkAccessFlags2 srcAccessMask,
+	VkAccessFlags2 dstAccessMask,
+	VkImageLayout oldImageLayout,
+	VkImageLayout newImageLayout,
+	VkPipelineStageFlags2 srcStageMask,
+	VkPipelineStageFlags2 dstStageMask,
+	VkImageSubresourceRange subresourceRange);
+
+void SetImageLayout(
+	VkCommandBuffer cmdbuffer,
+	VkImage image,
+	VkImageLayout oldImageLayout,
+	VkImageLayout newImageLayout,
+	VkImageSubresourceRange subresourceRange,
+	VkPipelineStageFlags2 srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+	VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+
+void SetImageLayout(
+	VkCommandBuffer cmdbuffer,
+	VkImage image,
+	VkImageAspectFlags aspectMask,
+	VkImageLayout oldImageLayout,
+	VkImageLayout newImageLayout,
+	VkPipelineStageFlags2 srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+	VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);

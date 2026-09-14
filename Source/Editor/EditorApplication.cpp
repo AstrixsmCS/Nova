@@ -1,10 +1,12 @@
 #include "EditorApplication.hpp"
 
-#include "Renderer/Renderer.hpp"
 #include "Renderer/Descriptors.hpp"
 #include "Renderer/DynamicRendering.hpp"
+#include "Renderer/Renderer.hpp"
 
 #include <glm/glm.hpp>
+
+#include <stack>
 
 EditorApplication::EditorApplication(const ApplicationSpecification& specification)
 	: Application(specification)
@@ -13,89 +15,154 @@ EditorApplication::EditorApplication(const ApplicationSpecification& specificati
 
 EditorApplication::~EditorApplication() = default;
 
+void EditorApplication::CreateDepthImage(uint32_t width, uint32_t height)
+{
+	m_DepthImage.Create(
+	{
+		.DebugName = "Depth",
+		.Format    = Format::D32_Float,
+		.Usage     = ImageUsage::Attachment,
+		.Width     = width,
+		.Height    = height,
+		.Mips      = 1,
+	});
+}
+
 void EditorApplication::OnInitialize()
 {
 	Descriptor::Initialize();
+	MaterialSystem::Initialize();
 
-	struct Vertex
-	{
-		glm::vec3 Position;
-		glm::vec3 Color;
-	};
+	m_GeometryShader = std::make_shared<Shader>();
+	m_GeometryShader->Load("Assets/Shaders/Mesh.slang");
 
-	const Vertex vertices[] =
-	{
-		{ { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.2f, 0.2f } },
-		{ {  0.5f, -0.5f, 0.0f }, { 0.2f, 1.0f, 0.2f } },
-		{ {  0.0f,  0.5f, 0.0f }, { 0.2f, 0.4f, 1.0f } },
-	};
+	m_GeometryMaterial.SetShader(m_GeometryShader);
 
-	m_VertexBuffer.Create(vertices, sizeof(vertices), VertexBufferUsage::Static);
-	m_VertexBuffer.SetLayout(
+	m_GeometryState.VertexLayout =
 	{
 		{ ShaderDataType::Float3, "Position" },
-		{ ShaderDataType::Float3, "Color"    },
-	});
+		{ ShaderDataType::Float3, "Normal"   },
+		{ ShaderDataType::Float2, "TexCoord" },
+		{ ShaderDataType::Float4, "Tangent"  },
+	};
+	m_GeometryState.CullMode     = VK_CULL_MODE_NONE;
+	m_GeometryState.DepthTest    = true;
+	m_GeometryState.DepthWrite   = true;
+	m_GeometryState.DepthCompare = CompareOp::Less;
 
-	m_TriangleShader = std::make_shared<Shader>();
-	m_TriangleShader->Load("Assets/Shaders/Triangle.slang");
+	m_Mesh.Load("Assets/Meshes/DamagedHelmet/DamagedHelmet.glb");
 
-	m_TriangleState.VertexLayout = m_VertexBuffer.GetLayout();
-	m_TriangleState.CullMode     = VK_CULL_MODE_NONE;
-	m_TriangleState.DepthTest    = true;
-	m_TriangleState.DepthWrite   = true;
+	m_MaterialIndices.reserve(m_Mesh.GetMaterials().size());
+	for (const Material& material : m_Mesh.GetMaterials())
+	{
+		auto shared = std::shared_ptr<Material>(const_cast<Material*>(&material), [](Material*){});
+		m_MaterialIndices.push_back(MaterialSystem::RegisterMaterial(shared));
+	}
 
-	const SwapChain& swapChain = Renderer::GetSwapChain();
-	const VkExtent2D extent    = swapChain.GetExtent();
-	const float      aspect    = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+	for (UniformBuffer& buffer : m_CameraBuffers)
+		buffer.Create(sizeof(CameraUniforms));
+
+	const VkExtent2D extent = Renderer::GetSwapChain().GetExtent();
+	const float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
 
 	m_Camera = Camera(glm::radians(60.0f), aspect, 0.1f, 1000.0f);
 	m_Camera.SetPosition({ 0.0f, 0.0f, 3.0f });
+
+	CreateDepthImage(extent.width, extent.height);
 }
 
-void EditorApplication::OnUpdate()
+void EditorApplication::DrawMesh(CommandBuffer& cmd, const Mesh& mesh)
 {
-	m_Camera.OnUpdate();
+	const VkBuffer     vb     = mesh.GetVertexBuffer();
+	const VkDeviceSize offset = 0;
+	vkCmdBindVertexBuffers(cmd.GetHandle(), 0, 1, &vb, &offset);
+	vkCmdBindIndexBuffer(cmd.GetHandle(), mesh.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+	const uint64_t cameraAddress    = m_CameraBuffers[Renderer::GetCurrentFrameIndex()].GetDeviceAddress();
+	const uint64_t materialsAddress = MaterialSystem::GetBuffer().GetDeviceAddress();
+
+	const auto& ranges = m_GeometryMaterial.GetShader()->GetPushConstantRanges();
+	assert(!ranges.empty());
+	const auto& range = ranges[0];
+
+	const std::vector<Submesh>& submeshes = mesh.GetSubmeshes();
+
+	mesh.TraverseNodes([&](const Node& node, const glm::mat4& worldTransform)
+	{
+		for (uint32_t submeshIndex : node.Submeshes)
+		{
+			assert(submeshIndex < submeshes.size());
+
+			const Submesh& submesh = submeshes[submeshIndex];
+
+			const uint32_t materialIndex = (submesh.MaterialIndex != UINT32_MAX && submesh.MaterialIndex < m_MaterialIndices.size()) ? m_MaterialIndices[submesh.MaterialIndex] : 0;
+
+			m_GeometryMaterial.Set("Model",         worldTransform);
+			m_GeometryMaterial.Set("UBCamera",      cameraAddress);
+			m_GeometryMaterial.Set("SBMaterials",   materialsAddress);
+			m_GeometryMaterial.Set("MaterialIndex", materialIndex);
+
+			const auto& storage = m_GeometryMaterial.GetUniformStorage();
+			assert(storage.size() == range.Size);
+
+			vkCmdPushConstants(cmd.GetHandle(), m_GeometryShader->GetPipelineLayout(), range.StageFlags, range.Offset, static_cast<uint32_t>(storage.size()), storage.data());
+
+			vkCmdDrawIndexed(cmd.GetHandle(), submesh.IndexCount, 1, submesh.BaseIndex, static_cast<int32_t>(submesh.BaseVertex), 0);
+		}
+	});
+}
+
+void EditorApplication::OnUpdate(Timestep ts)
+{
+	m_Camera.OnUpdate(ts);
+
+	MaterialSystem::Update();
 
 	CommandBuffer& cmd  = Renderer::GetCurrentCommandBuffer();
 	SwapChain&     swap = Renderer::GetSwapChain();
 
-	// ==== Barriers: undefined → color attachment ====
-
-	const VkImageMemoryBarrier2 barriers[]
 	{
+		const VkExtent2D extent = swap.GetExtent();
+
+		if (m_DepthImage.GetWidth()  != extent.width || m_DepthImage.GetHeight() != extent.height)
 		{
-			.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-			.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-			.srcAccessMask       = VK_ACCESS_2_NONE,
-			.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			.dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
-			.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image               = swap.GetCurrentImage(),
-			.subresourceRange    =
-			{
-				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel   = 0,
-				.levelCount     = 1,
-				.baseArrayLayer = 0,
-				.layerCount     = 1,
-			},
-		},
-	};
+			Renderer::WaitForGPU();
+			CreateDepthImage(extent.width, extent.height);
 
-	const VkDependencyInfo toAttachmentDep
+			const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+			m_Camera.SetPerspective(glm::radians(60.0f), aspect, 0.1f, 1000.0f);
+		}
+	}
+
 	{
-		.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-		.imageMemoryBarrierCount = static_cast<uint32_t>(std::size(barriers)),
-		.pImageMemoryBarriers    = barriers,
-	};
+		const glm::mat4 vp    = m_Camera.GetViewProjection();
+		const glm::mat4 invVP = glm::inverse(vp);
 
-	vkCmdPipelineBarrier2(cmd.GetHandle(), &toAttachmentDep);
+		const CameraUniforms uniforms
+		{
+			.ViewProjection        = vp,
+			.InverseViewProjection = invVP,
+			.Position              = m_Camera.GetPosition(),
+		};
 
-	// ==== Render pass ====
+		m_CameraBuffers[Renderer::GetCurrentFrameIndex()].SetData(&uniforms, sizeof(CameraUniforms));
+	}
+
+	// ==== Barriers: undefined → attachments ====
+
+	SetImageLayout(cmd.GetHandle(),
+		swap.GetCurrentImage(),
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+	SetImageLayout(cmd.GetHandle(),
+		m_DepthImage.GetHandle(),
+		VK_IMAGE_ASPECT_DEPTH_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+	// ==== Geometry pass ====
 
 	const AttachmentInfo color
 	{
@@ -107,69 +174,55 @@ void EditorApplication::OnUpdate()
 		.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 	};
 
+	const AttachmentInfo depth
+	{
+		.ImageView  = m_DepthImage.GetAttachmentView(),
+		.Format     = Format::D32_Float,
+		.LoadOp     = LoadOp::Clear,
+		.StoreOp    = StoreOp::DontCare,
+		.ClearValue = { .depthStencil = { 1.0f, 0 } },
+		.Layout     = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+	};
+
 	const RenderPassInfo passInfo
 	{
 		.ColorAttachments = { &color, 1 },
+		.DepthAttachment  = &depth,
 		.RenderArea       = { {0, 0}, swap.GetExtent() },
 	};
 
 	DynamicRendering::BeginRendering(cmd, passInfo);
 
-	m_TriangleShader->Bind(cmd);
-	m_TriangleState.Apply(cmd, 1);
+	m_GeometryShader->Bind(cmd);
+	m_GeometryState.Apply(cmd, 1);
 
-	const glm::mat4 viewProjection = m_Camera.GetViewProjection();
+	const VkDescriptorSet descriptorSet = Descriptor::GetSet();
+	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_GeometryShader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
-	vkCmdPushConstants(cmd.GetHandle(),m_TriangleShader->GetPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &viewProjection);
-
-	const VkBuffer     vertexBuffer = m_VertexBuffer.GetBuffer();
-	const VkDeviceSize offset       = 0;
-	vkCmdBindVertexBuffers(cmd.GetHandle(), 0, 1, &vertexBuffer, &offset);
-
-	vkCmdDraw(cmd.GetHandle(), 3, 1, 0, 0);
+	DrawMesh(cmd, m_Mesh);
 
 	DynamicRendering::EndRendering(cmd);
 
 	// ==== Barrier: color attachment → present ====
 
-	const VkImageMemoryBarrier2 toPresent
-	{
-		.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-		.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		.srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		.dstStageMask        = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-		.dstAccessMask       = VK_ACCESS_2_NONE,
-		.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image               = swap.GetCurrentImage(),
-		.subresourceRange    =
-		{
-			.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			.baseMipLevel   = 0,
-			.levelCount     = 1,
-			.baseArrayLayer = 0,
-			.layerCount     = 1,
-		},
-	};
-
-	const VkDependencyInfo toPresentDep
-	{
-		.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-		.imageMemoryBarrierCount = 1,
-		.pImageMemoryBarriers    = &toPresent,
-	};
-
-	vkCmdPipelineBarrier2(cmd.GetHandle(), &toPresentDep);
+	SetImageLayout(cmd.GetHandle(),
+		swap.GetCurrentImage(),
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 }
 
 void EditorApplication::OnShutdown()
 {
 	Renderer::WaitForGPU();
 
-	m_VertexBuffer.Destroy();
-	m_TriangleShader->Shutdown();
+	for (auto& buffer : m_CameraBuffers)
+		buffer.Destroy();
 
+	m_DepthImage.Destroy();
+	m_Mesh.Destroy();
+	m_GeometryShader->Shutdown();
+
+	MaterialSystem::Shutdown();
 	Descriptor::Shutdown();
 }
