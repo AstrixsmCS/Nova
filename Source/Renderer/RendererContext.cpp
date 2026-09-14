@@ -22,9 +22,7 @@ static bool s_Validation = true;
 
 static RendererContext* s_Instance = nullptr;
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Vulkan Debug Utilities
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==== Vulkan Debug Utilities ====
 
 constexpr const char* VkDebugUtilsMessageType(VkDebugUtilsMessageTypeFlagsEXT type)
 {
@@ -126,9 +124,7 @@ static bool CheckDriverAPIVersionSupport(uint32_t minimumSupportedVersion)
 	return true;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Initialize / Shutdown
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==== Initialize / Shutdown ====
 
 void RendererContext::Initialize()
 {
@@ -205,9 +201,7 @@ RendererContext& RendererContext::Get()
 	return *s_Instance;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Instance
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==== Instance ====
 
 void RendererContext::CreateInstance()
 {
@@ -225,9 +219,7 @@ void RendererContext::CreateInstance()
 	if (s_Validation)
 		instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Validation Layers
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Validation Layers ===
 
 	std::vector<const char*> requestedLayers;
 
@@ -263,9 +255,7 @@ void RendererContext::CreateInstance()
 		}
 	}
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Instance Creation
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Instance Creation ===
 
 	const VkApplicationInfo applicationInfo
 	{
@@ -299,9 +289,7 @@ void RendererContext::CreateInstance()
 	volkLoadInstance(m_VulkanInstance);
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Debug Messenger
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==== Debug Messenger ====
 
 void RendererContext::SetupDebugMessenger()
 {
@@ -320,9 +308,7 @@ void RendererContext::SetupDebugMessenger()
 	VK_CHECK(vkCreateDebugUtilsMessengerEXT(m_VulkanInstance, &debugInfo, nullptr, &m_DebugMessenger));
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Physical Device
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==== Physical Device ====
 
 void RendererContext::PickPhysicalDevice()
 {
@@ -356,15 +342,11 @@ void RendererContext::PickPhysicalDevice()
 	std::println("[Renderer] Selected GPU: {}", m_PhysicalDeviceProperties.deviceName);
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Logical Device
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==== Logical Device ====
 
 void RendererContext::CreateLogicalDevice()
 {
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Queue Families
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Queue Families ===
 	uint32_t queueFamilyCount = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, nullptr);
 
@@ -373,9 +355,7 @@ void RendererContext::CreateLogicalDevice()
 	std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
 	vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, queueFamilies.data());
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Graphics Queue Family
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Graphics Queue Family ===
 	for (uint32_t i = 0; i < queueFamilyCount; i++)
 	{
 		if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
@@ -387,9 +367,8 @@ void RendererContext::CreateLogicalDevice()
 
 	assert(m_GraphicsFamily != UINT32_MAX && "Could not find a graphics queue family!");
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Compute Queue Family
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Compute Queue Family ===
+
 	// Prefer a dedicated compute queue family.
 	for (uint32_t i = 0; i < queueFamilyCount; i++)
 	{
@@ -407,9 +386,8 @@ void RendererContext::CreateLogicalDevice()
 	if (m_ComputeFamily == UINT32_MAX)
 		m_ComputeFamily = m_GraphicsFamily;
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transfer Queue Family
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Transfer Queue Family ===
+
 	// Prefer a dedicated transfer queue family.
 	for (uint32_t i = 0; i < queueFamilyCount; i++)
 	{
@@ -438,9 +416,9 @@ void RendererContext::CreateLogicalDevice()
 		m_TransferFamily = m_GraphicsFamily;
 	}
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Queue Creation
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	// === Queue Creation ===
+
 	constexpr float queuePriority = 1.0f;
 
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -469,9 +447,7 @@ void RendererContext::CreateLogicalDevice()
 	addQueueFamily(m_ComputeFamily);
 	addQueueFamily(m_TransferFamily);
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Supported Features
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Supported Features ===
 
 	VkPhysicalDeviceVulkan14Features supportedFeatures14
 	{
@@ -505,15 +481,23 @@ void RendererContext::CreateLogicalDevice()
 
 	vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures);
 
+	assert(supportedFeatures11.shaderDrawParameters && "Shader draw parameters are not supported!");
 	assert(supportedFeatures13.dynamicRendering && "Dynamic rendering is not supported!");
 	assert(supportedFeatures13.synchronization2 && "Synchronization2 is not supported!");
 
 	assert(supportedFeatures12.timelineSemaphore && "Timeline semaphores are not supported!");
 	assert(supportedFeatures12.bufferDeviceAddress && "Buffer device address is not supported!");
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Enabled Features
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	assert(supportedFeatures12.runtimeDescriptorArray && "Runtime descriptor arrays are not supported!");
+	assert(supportedFeatures12.descriptorBindingPartiallyBound && "Partially-bound descriptors are not supported!");
+	assert(supportedFeatures12.descriptorBindingSampledImageUpdateAfterBind && "Sampled-image update-after-bind is not supported!");
+	assert(supportedFeatures12.descriptorBindingStorageImageUpdateAfterBind && "Storage-image update-after-bind is not supported!");
+	assert(supportedFeatures12.shaderSampledImageArrayNonUniformIndexing && "Non-uniform sampled image indexing is not supported!");
+
+	assert(supportedFeatures.features.samplerAnisotropy && "Sampler Anisotropy is not supported!");
+	assert(supportedFeatures.features.shaderInt64 && "Shader Int64 is not supported!");
+
+	// === Enabled Features ===
 
 	VkPhysicalDeviceVulkan14Features features14
 	{
@@ -525,6 +509,7 @@ void RendererContext::CreateLogicalDevice()
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
 		.pNext = &features14,
+		.shaderDemoteToHelperInvocation = VK_TRUE,
 		.synchronization2 = VK_TRUE,
 		.dynamicRendering = VK_TRUE
 	};
@@ -533,6 +518,11 @@ void RendererContext::CreateLogicalDevice()
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
 		.pNext = &features13,
+		.shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+		.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
+		.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE,
+		.descriptorBindingPartiallyBound = VK_TRUE,
+		.runtimeDescriptorArray = VK_TRUE,
 		.timelineSemaphore = VK_TRUE,
 		.bufferDeviceAddress = VK_TRUE,
 	};
@@ -540,18 +530,22 @@ void RendererContext::CreateLogicalDevice()
 	VkPhysicalDeviceVulkan11Features features11
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-		.pNext = &features12
+		.pNext = &features12,
+		.shaderDrawParameters = VK_TRUE
 	};
 
 	VkPhysicalDeviceFeatures2 features
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-		.pNext = &features11
+		.pNext = &features11,
+		.features =
+		{
+			.samplerAnisotropy = VK_TRUE,
+			.shaderInt64 = VK_TRUE
+		}
 	};
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Device Extensions
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Device Extensions ===
 
 	uint32_t extensionCount = 0;
 	VK_CHECK(vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extensionCount, nullptr));
@@ -580,9 +574,7 @@ void RendererContext::CreateLogicalDevice()
 		m_EnableDebugMarkers = true;
 	}
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Device Creation
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Device Creation ===
 
 	const VkDeviceCreateInfo deviceCreateInfo
 	{
@@ -599,9 +591,7 @@ void RendererContext::CreateLogicalDevice()
 
 	volkLoadDevice(m_LogicalDevice);
 
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Queues
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// === Queues ===
 
 	vkGetDeviceQueue(m_LogicalDevice, m_GraphicsFamily, 0, &m_GraphicsQueue);
 	vkGetDeviceQueue(m_LogicalDevice, m_ComputeFamily, 0, &m_ComputeQueue);
@@ -619,9 +609,7 @@ void RendererContext::CreateLogicalDevice()
 		std::println("[Renderer] Debug markers enabled.");
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Extensions
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// === Extensions ===
 
 bool RendererContext::IsExtensionSupported(const std::string& extensionName) const
 {

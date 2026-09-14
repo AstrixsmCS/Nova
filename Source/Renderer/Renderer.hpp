@@ -30,7 +30,7 @@ public:
 
 	static constexpr uint32_t GetFramesInFlight() { return MAX_FRAMES_IN_FLIGHT; }
 
-	// ~Actual~ Renderer here... TODO: remove confusion later
+	// ==== ~Actual~ Renderer here... TODO: remove confusion later ====
 
 	static bool BeginFrame();
 	static void EndFrame();
