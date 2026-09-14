@@ -96,8 +96,8 @@ namespace DynamicRendering
 
 		const VkRect2D scissor = info.RenderArea;
 
-		vkCmdSetViewport(commandBuffer.GetHandle(), 0, 1, &viewport);
-		vkCmdSetScissor(commandBuffer.GetHandle(), 0, 1, &scissor);
+		vkCmdSetViewportWithCount(commandBuffer.GetHandle(), 1, &viewport);
+		vkCmdSetScissorWithCount(commandBuffer.GetHandle(), 1, &scissor);
 	}
 
 	inline void EndRendering(CommandBuffer& commandBuffer)

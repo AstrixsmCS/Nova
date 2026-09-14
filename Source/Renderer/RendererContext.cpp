@@ -449,10 +449,16 @@ void RendererContext::CreateLogicalDevice()
 
 	// === Supported Features ===
 
+	VkPhysicalDeviceShaderObjectFeaturesEXT supportedShaderObjectFeatures
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
+		.pNext = nullptr
+	};
+
 	VkPhysicalDeviceVulkan14Features supportedFeatures14
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-		.pNext = nullptr
+		.pNext = &supportedShaderObjectFeatures
 	};
 
 	VkPhysicalDeviceVulkan13Features supportedFeatures13
@@ -481,6 +487,8 @@ void RendererContext::CreateLogicalDevice()
 
 	vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures);
 
+	assert(supportedShaderObjectFeatures.shaderObject && "Shader objects are not supported!");
+
 	assert(supportedFeatures11.shaderDrawParameters && "Shader draw parameters are not supported!");
 	assert(supportedFeatures13.dynamicRendering && "Dynamic rendering is not supported!");
 	assert(supportedFeatures13.synchronization2 && "Synchronization2 is not supported!");
@@ -499,10 +507,17 @@ void RendererContext::CreateLogicalDevice()
 
 	// === Enabled Features ===
 
+	VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeatures
+	{
+		.sType        = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
+		.pNext        = nullptr,
+		.shaderObject = VK_TRUE
+	};
+
 	VkPhysicalDeviceVulkan14Features features14
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-		.pNext = nullptr
+		.pNext = &shaderObjectFeatures
 	};
 
 	VkPhysicalDeviceVulkan13Features features13
@@ -562,10 +577,12 @@ void RendererContext::CreateLogicalDevice()
 
 	std::vector<const char*> deviceExtensions
 	{
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
 	};
 
 	assert(IsExtensionSupported(VK_KHR_SWAPCHAIN_EXTENSION_NAME) && "VK_KHR_swapchain is not supported!");
+	assert(IsExtensionSupported(VK_EXT_SHADER_OBJECT_EXTENSION_NAME) && "VK_EXT_shader_object is not supported!");
 
 	if (IsExtensionSupported(VK_EXT_DEBUG_MARKER_EXTENSION_NAME))
 	{
