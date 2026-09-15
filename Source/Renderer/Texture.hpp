@@ -2,7 +2,8 @@
 
 #include "Image.hpp"
 
-#include <cstdint>
+#include "Asset/Asset.hpp"
+
 #include <filesystem>
 #include <string>
 
@@ -18,7 +19,7 @@ struct TextureSpecification
 	uint32_t Height = 1;
 };
 
-class Texture2D
+class Texture2D : public Asset
 {
 public:
 	Texture2D()  = default;
@@ -29,7 +30,6 @@ public:
 
 	void Create(const TextureSpecification& specification);
 	void Create(const TextureSpecification& specification, const void* data);
-	void Create(const TextureSpecification& specification, const std::filesystem::path& path);
 
 	void Destroy();
 
@@ -52,6 +52,8 @@ public:
 
 	void GenerateMips();
 
+	static AssetType GetStaticType()        { return AssetType::Texture; }
+	AssetType GetAssetType() const override { return AssetType::Texture; }
 private:
 	void SetData(const void* data, size_t size);
 

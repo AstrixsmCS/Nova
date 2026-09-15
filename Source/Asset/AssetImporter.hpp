@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Importers/ImporterContext.hpp"
+
 #include <cstdint>
 #include <filesystem>
 
@@ -16,5 +18,5 @@ public:
 
 	virtual uint32_t GetVersion() const { return 1; }
 
-	virtual bool Import(const std::filesystem::path& source, const std::filesystem::path& destination) = 0;
+	virtual bool Import(const ImportContext& context) = 0;
 };

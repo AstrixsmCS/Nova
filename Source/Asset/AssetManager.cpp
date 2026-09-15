@@ -2,10 +2,16 @@
 
 #include "AssetExtensions.hpp"
 #include "AssetSerializer.hpp"
+#include "MetaFile.hpp"
 
-#include "Importers/SceneImporter.hpp"
 #include "Scene/Scene.hpp"
 #include "Scene/SceneSerializer.hpp"
+#include "Renderer/Shader.hpp"
+#include "Renderer/Texture.hpp"
+
+#include "Importers/SceneImporter.hpp"
+#include "Importers/ShaderImporter.hpp"
+#include "Importers/TextureImporter.hpp"
 
 #include "Core/Log.hpp"
 
@@ -39,7 +45,7 @@ namespace
 		std::ifstream stream(path, std::ios::binary);
 		if (!stream)
 			return false;
-		// FNV-1a: change detection, not a cryptographic integrity check.
+
 		uint64_t hash = 14695981039346656037ULL;
 		char buffer[16384];
 		while (stream.read(buffer, sizeof(buffer)) || stream.gcount() != 0)
@@ -50,8 +56,10 @@ namespace
 				hash *= 1099511628211ULL;
 			}
 		}
+
 		if (stream.bad() || !stream.eof())
 			return false;
+
 		result = std::format("{:016x}", hash);
 		return true;
 	}
@@ -125,14 +133,13 @@ void AssetManager::Initialize(const std::filesystem::path& root)
 		return;
 	}
 
-	// Importers are added here as they are implemented, e.g.:
-	// s_Importers[AssetType::Mesh] = std::make_unique<MeshImporter>();
-	s_Importers[AssetType::Scene] = std::make_unique<SceneImporter>();
+	s_Importers[AssetType::Scene]   = std::make_unique<SceneImporter>();
+	s_Importers[AssetType::Shader]  = std::make_unique<ShaderImporter>();
+	s_Importers[AssetType::Texture] = std::make_unique<TextureImporter>();
 
 	if (!LoadRegistry())
 	{
 		NV_ERROR("AssetManager: registry initialization failed.");
-
 		s_Registry.Clear();
 		s_PathToHandle.clear();
 		s_Importers.clear();
@@ -194,14 +201,13 @@ bool AssetManager::LoadRegistry()
 		return false;
 	}
 
-	// Validate everything before replacing the current registry.
 	AssetRegistry registry;
 	std::unordered_map<std::string, AssetHandle> pathToHandle;
 
 	for (const auto& item : document["assets"])
 	{
 		if (!item.is_object() ||
-			!item.contains("id") || !item["id"].is_string() ||
+			!item.contains("id")   || !item["id"].is_string() ||
 			!item.contains("path") || !item["path"].is_string() ||
 			!item.contains("type") || !item["type"].is_number_unsigned())
 		{
@@ -212,21 +218,16 @@ bool AssetManager::LoadRegistry()
 		const auto id = item["id"].get<std::string>();
 
 		uint64_t value = 0;
-		const auto result = std::from_chars(
-			id.data(), id.data() + id.size(), value, 16);
+		const auto result = std::from_chars(id.data(), id.data() + id.size(), value, 16);
 
-		if (id.size() != 16 ||
-			result.ec != std::errc{} ||
-			result.ptr != id.data() + id.size() ||
-			value == 0)
+		if (id.size() != 16 || result.ec != std::errc{} || result.ptr != id.data() + id.size() || value == 0)
 		{
 			NV_ERROR("AssetManager: invalid asset UUID '{}'.", id);
 			return false;
 		}
 
 		const auto text = item["path"].get<std::string>();
-		const auto path = std::filesystem::path(
-			std::u8string(text.begin(), text.end())).lexically_normal();
+		const auto path = std::filesystem::path(std::u8string(text.begin(), text.end())).lexically_normal();
 
 		if (!IsSourcePath(path))
 		{
@@ -234,14 +235,10 @@ bool AssetManager::LoadRegistry()
 			return false;
 		}
 
-		// Validate against supported extensions without assuming that
-		// a particular AssetType is the final enum value.
 		const auto extension = AssetExtensionMap.find(Extension(path));
-		const auto type = item["type"].get<uint64_t>();
+		const auto type      = item["type"].get<uint64_t>();
 
-		if (extension == AssetExtensionMap.end() ||
-			extension->second == AssetType::None ||
-			type != static_cast<uint64_t>(extension->second))
+		if (extension == AssetExtensionMap.end() || extension->second == AssetType::None || type != static_cast<uint64_t>(extension->second))
 		{
 			NV_ERROR("AssetManager: unsupported or mismatched type for '{}'.", text);
 			return false;
@@ -257,15 +254,15 @@ bool AssetManager::LoadRegistry()
 		}
 
 		AssetMetadata metadata;
-		metadata.Path = path;
-		metadata.Type = extension->second;
+		metadata.Path     = path;
+		metadata.Type     = extension->second;
 		metadata.IsLoaded = false;
 
 		registry.Set(handle, metadata);
 		pathToHandle.emplace(key, handle);
 	}
 
-	s_Registry = std::move(registry);
+	s_Registry     = std::move(registry);
 	s_PathToHandle = std::move(pathToHandle);
 
 	return true;
@@ -280,12 +277,10 @@ bool AssetManager::SaveRegistry()
 	nlohmann::json document =
 	{
 		{ "version", 1 },
-		{ "assets", nlohmann::json::array() }
+		{ "assets",  nlohmann::json::array() }
 	};
 
-	// Keep entries sorted by path for readable version-control diffs.
 	std::map<std::string, AssetHandle> sorted;
-
 	for (const auto& [handle, metadata] : s_Registry)
 		sorted.emplace(PathKey(metadata.Path), handle);
 
@@ -295,19 +290,13 @@ bool AssetManager::SaveRegistry()
 
 		document["assets"].push_back(
 		{
-			{ "id", std::format("{:016x}", static_cast<uint64_t>(handle)) },
+			{ "id",   std::format("{:016x}", static_cast<uint64_t>(handle)) },
 			{ "path", path },
 			{ "type", static_cast<uint32_t>(metadata.Type) }
 		});
 	}
 
-	if (!WriteJSON(registryPath, document))
-	{
-		NV_ERROR("AssetManager: failed to save AssetRegistry.nvr.");
-		return false;
-	}
-
-	return true;
+	return WriteJSON(registryPath, document);
 }
 
 // ---------------------------------------------------------------------------
@@ -333,12 +322,9 @@ AssetHandle AssetManager::RegisterAsset(const std::filesystem::path& path)
 	if (absolute.empty() || !std::filesystem::is_regular_file(absolute, ec) || ec)
 		return AssetHandle{ 0 };
 
-	// Return existing handle if already registered.
 	const auto existing = FindByPath(relative);
 	if (static_cast<uint64_t>(existing) != 0)
-	{
 		return s_Registry.Get(existing).Type == it->second ? existing : AssetHandle{ 0 };
-	}
 
 	AssetHandle handle;
 	while (static_cast<uint64_t>(handle) == 0 || s_Registry.Contains(handle))
@@ -391,8 +377,9 @@ std::shared_ptr<Asset> AssetManager::GetAsset(AssetHandle handle)
 	}
 
 	const auto cachePath = GetCachePath(handle);
-	auto data = cachePath.empty() ? nullptr : DeserializeAsset(metadata.Type, cachePath);
+	auto data  = cachePath.empty() ? nullptr : DeserializeAsset(metadata.Type, cachePath);
 	auto asset = data ? FinalizeAsset(metadata.Type, *data) : nullptr;
+
 	s_LoadingAssets.erase(handle);
 
 	if (!asset || asset->GetAssetType() != metadata.Type)
@@ -400,7 +387,6 @@ std::shared_ptr<Asset> AssetManager::GetAsset(AssetHandle handle)
 
 	asset->Handle = handle;
 
-	// Mark as loaded in registry.
 	AssetMetadata updated = metadata;
 	updated.IsLoaded = true;
 	s_Registry.Set(handle, updated);
@@ -408,6 +394,10 @@ std::shared_ptr<Asset> AssetManager::GetAsset(AssetHandle handle)
 	s_LoadedAssets.emplace(handle, asset);
 	return asset;
 }
+
+// ---------------------------------------------------------------------------
+// Deserialize / Finalize
+// ---------------------------------------------------------------------------
 
 std::unique_ptr<AssetData> AssetManager::DeserializeAsset(AssetType type, const std::filesystem::path& path)
 {
@@ -417,6 +407,20 @@ std::unique_ptr<AssetData> AssetManager::DeserializeAsset(AssetType type, const 
 		{
 			auto data = std::make_unique<SceneAssetData>();
 			if (!AssetSerializer::DeserializeScene(path, *data))
+				return nullptr;
+			return data;
+		}
+		case AssetType::Shader:
+		{
+			auto data = std::make_unique<ShaderAssetData>();
+			if (!AssetSerializer::DeserializeShader(path, *data))
+				return nullptr;
+			return data;
+		}
+		case AssetType::Texture:
+		{
+			auto data = std::make_unique<TextureAssetData>();
+			if (!AssetSerializer::DeserializeTexture(path, *data))
 				return nullptr;
 			return data;
 		}
@@ -436,17 +440,56 @@ std::shared_ptr<Asset> AssetManager::FinalizeAsset(AssetType type, AssetData& da
 			auto scene = std::make_shared<Scene>();
 
 			SceneSerializer serializer(*scene);
-
 			if (!serializer.DeserializeFromJSON(sceneData.Document))
 				return nullptr;
 
 			return scene;
+		}
+		case AssetType::Shader:
+		{
+			const auto& shaderData = static_cast<const ShaderAssetData&>(data);
+
+			auto shader = std::make_shared<Shader>();
+			shader->Load(shaderData.CachedPath);
+
+			if (!shader->IsValid())
+			{
+				NV_ERROR("AssetManager: failed to load shader '{}'", shaderData.CachedPath.string());
+				return nullptr;
+			}
+
+			return shader;
+		}
+		case AssetType::Texture:
+		{
+			const auto& texData = static_cast<const TextureAssetData&>(data);
+
+			auto texture = std::make_shared<Texture2D>();
+
+			TextureSpecification spec
+			{
+				.Format       = texData.Format,
+				.GenerateMips = texData.MipLevels > 1,
+				.Width        = texData.Width,
+				.Height       = texData.Height,
+			};
+
+			texture->Create(spec, texData.Pixels.data());
+
+			if (!texture->IsValid())
+				return nullptr;
+
+			return texture;
 		}
 		default:
 			NV_ERROR("AssetManager: no finalizer for type {}", static_cast<uint32_t>(type));
 			return nullptr;
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Import
+// ---------------------------------------------------------------------------
 
 bool AssetManager::Import(AssetHandle handle)
 {
@@ -481,57 +524,57 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 	if (cache.empty() || metaPath.empty())
 		return false;
 
-	// Read or build default .meta.
-	nlohmann::json meta;
+	// Load existing meta or create a fresh one
+	MetaFile meta;
 	{
 		std::error_code ec;
 		const bool exists = std::filesystem::exists(metaPath, ec);
 		if (ec)
 			return false;
+
 		if (exists)
 		{
-			if (!ReadJSON(metaPath, meta) || !meta.is_object())
+			if (!meta.Load(metaPath))
 			{
-				NV_ERROR("AssetManager: invalid metadata '{}'", metaPath.string());
+				NV_ERROR("AssetManager: failed to load metadata '{}'", metaPath.string());
+				return false;
+			}
+
+			// Reject metadata belonging to a different asset
+			if (meta.GetHandle() != handle || meta.GetType() != metadata.Type)
+			{
+				NV_ERROR("AssetManager: metadata mismatch for '{}'", metaPath.string());
 				return false;
 			}
 		}
 		else
-			meta = { { "version", 1 }, { "id", std::format("{:016x}", static_cast<uint64_t>(handle)) } };
+		{
+			meta = MetaFile::Create(handle, metadata.Type);
+		}
 	}
-
-	const auto id = std::format("{:016x}", static_cast<uint64_t>(handle));
-	if ((meta.contains("version") && meta["version"] != 1) ||
-		(meta.contains("id") && meta["id"] != id))
-		return false;
-	// Compatibility with metadata from the previous revision. These importers
-	// never supported nonempty settings; do not silently discard such edits.
-	if (meta.contains("settings") &&
-		(!meta["settings"].is_object() || !meta["settings"].empty()))
-	{
-		NV_ERROR("AssetManager: this importer does not support the old metadata settings");
-		return false;
-	}
-	meta.erase("settings");
 
 	std::error_code ec;
 	std::string sourceHash;
 	if (!std::filesystem::is_regular_file(source, ec) || ec || !Fingerprint(source, sourceHash))
 		return false;
 
-	const nlohmann::json buildSig = {
-		{ "source_hash", sourceHash },
-		{ "hash_algorithm", "fnv1a64" },
-		{ "importer_version", importerIt->second->GetVersion() },
-		{ "type", static_cast<uint32_t>(metadata.Type) }
+	const nlohmann::json buildSig =
+	{
+		{ "source_hash",      sourceHash                            },
+		{ "hash_algorithm",   "fnv1a64"                            },
+		{ "importer_version", importerIt->second->GetVersion()     },
+		{ "type",             static_cast<uint32_t>(metadata.Type) },
+		{ "settings",         meta.GetTypeSettings()               }
 	};
 
-	// Skip conversion if the source signature matches and the cache exists.
-	if (!force && meta.contains("built") && meta["built"] == buildSig)
+	if (!force)
 	{
-		std::error_code cec;
-		if (std::filesystem::is_regular_file(cache, cec) && !cec)
-			return true;
+		if (meta.GetBuildSignature() == buildSig)
+		{
+			std::error_code cec;
+			if (std::filesystem::is_regular_file(cache, cec) && !cec)
+				return true;
+		}
 	}
 
 	if (s_ImportingAssets.contains(handle))
@@ -546,13 +589,20 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 	}
 
 	const auto tmp = cache.parent_path() / (cache.stem().string() + ".pending" + cache.extension().string());
-	// Reject staging-path aliases before an importer writes anything.
 	if (ResolvePath(tmp.lexically_relative(s_Root)) != tmp)
 	{
 		s_ImportingAssets.erase(handle);
 		return false;
 	}
-	const bool ok = importerIt->second->Import(source, tmp);
+
+	const ImportContext importContext
+	{
+		.Source       = source,
+		.Destination  = tmp,
+		.TypeSettings = &meta.GetTypeSettings()
+	};
+
+	const bool ok = importerIt->second->Import(importContext);
 
 	if (!ok)
 	{
@@ -562,7 +612,7 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 		return false;
 	}
 
-	// Commit only after the importer has successfully written a stable artifact.
+	// Commit
 #if defined(_WIN32)
 	const bool committed = MoveFileExW(tmp.c_str(), cache.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 #else
@@ -578,13 +628,17 @@ bool AssetManager::EnsureImported(AssetHandle handle, bool force)
 	}
 
 	UnloadAsset(handle);
-	meta["version"] = 1;
-	meta["id"] = id;
-	meta["built"] = buildSig;
-	const bool saved = WriteJSON(metaPath, meta);
+
+	meta.GetBuildSignature() = buildSig;
+	const bool saved = meta.Save(metaPath);
+
 	s_ImportingAssets.erase(handle);
 	return saved;
 }
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
 
 AssetHandle AssetManager::FindByPath(const std::filesystem::path& relativePath)
 {
@@ -593,10 +647,6 @@ AssetHandle AssetManager::FindByPath(const std::filesystem::path& relativePath)
 	const auto it   = s_PathToHandle.find(key);
 	return it != s_PathToHandle.end() ? it->second : AssetHandle{ 0 };
 }
-
-// ---------------------------------------------------------------------------
-// Queries
-// ---------------------------------------------------------------------------
 
 bool AssetManager::IsAssetLoaded(AssetHandle handle)
 {
@@ -665,7 +715,7 @@ std::filesystem::path AssetManager::GetCachePath(AssetHandle handle)
 	if (!s_Registry.Contains(handle))
 		return {};
 
-	const auto type = s_Registry.Get(handle).Type;
+	const auto type      = s_Registry.Get(handle).Type;
 	const auto extension = GetAssetCacheExtension(type);
 
 	if (extension.empty())
@@ -679,7 +729,7 @@ bool AssetManager::IsSourcePath(const std::filesystem::path& path)
 	if (path.empty() || path.has_root_path())
 		return false;
 	const auto normalized = path.lexically_normal();
-	return *normalized.begin() != ".n-engine" && normalized != "AssetRegistry.nvr" && *normalized.begin() != "..";
+	return *normalized.begin() != ".n-engine" && normalized != "AssetRegistry.nvr"  && *normalized.begin() != "..";
 }
 
 std::string AssetManager::Extension(const std::filesystem::path& path)

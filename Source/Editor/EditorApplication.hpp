@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Application.hpp"
+#include "Asset/AssetManager.hpp"
 
 #include "Renderer/Buffer.hpp"
 #include "Renderer/Camera.hpp"
@@ -11,6 +12,7 @@
 #include "Renderer/Mesh.hpp"
 #include "Renderer/Renderer.hpp"
 #include "Renderer/Shader.hpp"
+#include "Renderer/Texture.hpp"
 
 #include <array>
 
@@ -29,13 +31,13 @@ public:
 	~EditorApplication();
 
 protected:
-	void OnInitialize() override;
-	void OnUpdate(Timestep)     override;
-	void OnShutdown()   override;
+	void OnInitialize()     override;
+	void OnUpdate(Timestep) override;
+	void OnShutdown()       override;
 
 private:
 	void CreateDepthImage(uint32_t width, uint32_t height);
-	void DrawMesh(CommandBuffer& cmd, const Mesh& mesh);
+	void DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh);
 
 private:
 	std::shared_ptr<Shader> m_GeometryShader;
@@ -49,4 +51,10 @@ private:
 	std::array<UniformBuffer, Renderer::GetFramesInFlight()> m_CameraBuffers;
 
 	Image2D m_DepthImage;
+
+	// Texture pipeline test
+	AssetHandle                m_PNGHandle;
+	AssetHandle                m_HDRHandle;
+	std::shared_ptr<Texture2D> m_PNGTexture;
+	std::shared_ptr<Texture2D> m_HDRTexture;
 };

@@ -249,13 +249,26 @@ bool Mesh::Load(const std::filesystem::path& path)
 			{
 				const std::filesystem::path texturePath = path.parent_path() / uri.uri.path();
 
-				TextureSpecification spec;
-				spec.DebugName    = gltfImage.name.empty() ? texturePath.filename().string() : std::string(gltfImage.name);
-				spec.Format       = format;
-				spec.GenerateMips = true;
+				int width = 0, height = 0, channels = 0;
+				stbi_uc* pixels = stbi_load(texturePath.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
 
-				texture->Create(spec, texturePath);
-				loaded = texture->IsValid();
+				if (pixels)
+				{
+					TextureSpecification spec;
+					spec.DebugName    = gltfImage.name.empty() ? texturePath.filename().string() : std::string(gltfImage.name);
+					spec.Format       = format;
+					spec.GenerateMips = true;
+					spec.Width        = static_cast<uint32_t>(width);
+					spec.Height       = static_cast<uint32_t>(height);
+
+					texture->Create(spec, pixels);
+					stbi_image_free(pixels);
+					loaded = texture->IsValid();
+				}
+				else
+				{
+					std::println("[Mesh] stbi_load failed for '{}': {}", texturePath.string(), stbi_failure_reason());
+				}
 			},
 			[&](const fastgltf::sources::Array& arr)
 			{

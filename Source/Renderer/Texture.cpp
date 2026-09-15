@@ -3,12 +3,8 @@
 #include "Allocator.hpp"
 #include "RendererContext.hpp"
 
-#include <stb_image.h>
-
 #include <algorithm>
 #include <cassert>
-#include <cmath>
-#include <cstring>
 #include <format>
 
 void Texture2D::Create(const TextureSpecification& specification)
@@ -35,49 +31,17 @@ void Texture2D::Create(const TextureSpecification& specification)
 
 void Texture2D::Create(const TextureSpecification& specification, const void* data)
 {
-	assert(data);
-
 	Create(specification);
 
-	const size_t size = static_cast<size_t>(specification.Width) * specification.Height * Utils::GetFormatBytesPerPixel(specification.Format);
-
-	SetData(data, size);
-}
-
-void Texture2D::Create(const TextureSpecification& specification, const std::filesystem::path& path)
-{
-	int width    = 0;
-	int height   = 0;
-	int channels = 0;
-
-	TextureSpecification fileSpec = specification;
-
-	const std::string pathStr = path.string();
-	const bool        isHDR   = stbi_is_hdr(pathStr.c_str()) != 0;
-
-	void* pixels = nullptr;
-
-	if (isHDR)
+	if (data)
 	{
-		pixels = stbi_loadf(pathStr.c_str(), &width, &height, &channels, STBI_rgb_alpha);
-		fileSpec.Format = Format::RGBA32_Float;
-	}
-	else
-	{
-		pixels = stbi_load(pathStr.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+		const size_t byteSize = static_cast<size_t>(specification.Width) * specification.Height * Utils::GetFormatBytesPerPixel(specification.Format);
+
+		SetData(data, byteSize);
 	}
 
-	assert(pixels && "Failed to load texture!");
-
-	if (fileSpec.DebugName.empty())
-		fileSpec.DebugName = path.filename().string();
-
-	fileSpec.Width  = static_cast<uint32_t>(width);
-	fileSpec.Height = static_cast<uint32_t>(height);
-
-	Create(fileSpec, pixels);
-
-	stbi_image_free(pixels);
+	if (specification.GenerateMips && m_Image.GetMipCount() > 1)
+		GenerateMips();
 }
 
 void Texture2D::Destroy()
@@ -151,9 +115,6 @@ void Texture2D::SetData(const void* data, size_t size)
 	commandPool.Reset();
 
 	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
-
-	if (m_Image.GetMipCount() > 1)
-		GenerateMips();
 }
 
 void Texture2D::GenerateMips()

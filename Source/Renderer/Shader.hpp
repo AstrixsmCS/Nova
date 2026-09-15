@@ -3,6 +3,8 @@
 #include "Vulkan.hpp"
 #include "RendererTypes.hpp"
 
+#include "Asset/Asset.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -43,7 +45,7 @@ struct ShaderReflectionData
 
 class CommandBuffer;
 
-class Shader
+class Shader : public Asset
 {
 public:
 	void Load(const std::filesystem::path& filePath);
@@ -69,6 +71,8 @@ public:
 
 	static VkShaderStageFlagBits ToVulkanStage(ShaderStage stage);
 
+	static AssetType GetStaticType() { return AssetType::Shader; }
+	AssetType GetAssetType() const override { return AssetType::Shader; }
 private:
 	void CreatePipelineLayout();
 	void CreateShaderObjects();

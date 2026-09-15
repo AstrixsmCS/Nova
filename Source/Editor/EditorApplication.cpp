@@ -4,6 +4,8 @@
 #include "Renderer/DynamicRendering.hpp"
 #include "Renderer/Renderer.hpp"
 
+#include "Core/Log.hpp"
+
 #include <glm/glm.hpp>
 
 #include <stack>
@@ -69,14 +71,28 @@ void EditorApplication::OnInitialize()
 	m_Camera.SetPosition({ 0.0f, 0.0f, 3.0f });
 
 	CreateDepthImage(extent.width, extent.height);
+
+	// ==== Texture pipeline test ====
+
+	m_PNGHandle  = AssetManager::RegisterAsset("Textures/Test.png");
+	m_PNGTexture = AssetManager::GetAsset<Texture2D>(m_PNGHandle);
+	assert(static_cast<uint64_t>(m_PNGHandle) != 0);
+	assert(m_PNGTexture && m_PNGTexture->IsValid());
+	NV_TRACE("PNG loaded: {}x{}, {} mips, bindless index {}", m_PNGTexture->GetWidth(), m_PNGTexture->GetHeight(), m_PNGTexture->GetMipCount(), m_PNGTexture->GetBindlessIndex());
+
+	m_HDRHandle  = AssetManager::RegisterAsset("Textures/Test.hdr");
+	m_HDRTexture = AssetManager::GetAsset<Texture2D>(m_HDRHandle);
+	assert(static_cast<uint64_t>(m_HDRHandle) != 0);
+	assert(m_HDRTexture && m_HDRTexture->IsValid());
+	NV_TRACE("HDR loaded: {}x{}, {} mips, bindless index {}", m_HDRTexture->GetWidth(), m_HDRTexture->GetHeight(), m_HDRTexture->GetMipCount(), m_HDRTexture->GetBindlessIndex());
 }
 
-void EditorApplication::DrawMesh(CommandBuffer& cmd, const Mesh& mesh)
+void EditorApplication::DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh)
 {
 	const VkBuffer     vb     = mesh.GetVertexBuffer();
 	const VkDeviceSize offset = 0;
-	vkCmdBindVertexBuffers(cmd.GetHandle(), 0, 1, &vb, &offset);
-	vkCmdBindIndexBuffer(cmd.GetHandle(), mesh.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+	vkCmdBindVertexBuffers(commandBuffer.GetHandle(), 0, 1, &vb, &offset);
+	vkCmdBindIndexBuffer(commandBuffer.GetHandle(), mesh.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
 	const uint64_t cameraAddress    = m_CameraBuffers[Renderer::GetCurrentFrameIndex()].GetDeviceAddress();
 	const uint64_t materialsAddress = MaterialSystem::GetBuffer().GetDeviceAddress();
@@ -105,9 +121,9 @@ void EditorApplication::DrawMesh(CommandBuffer& cmd, const Mesh& mesh)
 			const auto& storage = m_GeometryMaterial.GetUniformStorage();
 			assert(storage.size() == range.Size);
 
-			vkCmdPushConstants(cmd.GetHandle(), m_GeometryShader->GetPipelineLayout(), range.StageFlags, range.Offset, static_cast<uint32_t>(storage.size()), storage.data());
+			vkCmdPushConstants(commandBuffer.GetHandle(), m_GeometryShader->GetPipelineLayout(), range.StageFlags, range.Offset, static_cast<uint32_t>(storage.size()), storage.data());
 
-			vkCmdDrawIndexed(cmd.GetHandle(), submesh.IndexCount, 1, submesh.BaseIndex, static_cast<int32_t>(submesh.BaseVertex), 0);
+			vkCmdDrawIndexed(commandBuffer.GetHandle(), submesh.IndexCount, 1, submesh.BaseIndex, static_cast<int32_t>(submesh.BaseVertex), 0);
 		}
 	});
 }
@@ -215,6 +231,10 @@ void EditorApplication::OnUpdate(Timestep ts)
 void EditorApplication::OnShutdown()
 {
 	Renderer::WaitForGPU();
+
+	// Release textures before AssetManager shuts down
+	m_PNGTexture.reset();
+	m_HDRTexture.reset();
 
 	for (auto& buffer : m_CameraBuffers)
 		buffer.Destroy();

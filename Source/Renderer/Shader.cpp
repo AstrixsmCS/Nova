@@ -21,10 +21,10 @@ namespace
 		for (const PushConstantRange& range : reflectionData.PushConstantRanges)
 		{
 			ranges.push_back(
-	{
-				 .stageFlags = range.StageFlags,
-				 .offset     = range.Offset,
-				 .size       = range.Size
+		{
+				.stageFlags = range.StageFlags,
+				.offset     = range.Offset,
+				.size       = range.Size
 			});
 		}
 

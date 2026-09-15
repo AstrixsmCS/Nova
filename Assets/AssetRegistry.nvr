@@ -1,4 +1,15 @@
 {
-    "assets": [],
+    "assets": [
+        {
+            "id": "487953ac9ca4eed1",
+            "path": "Textures/Test.hdr",
+            "type": 3
+        },
+        {
+            "id": "132bf66e49efd616",
+            "path": "Textures/Test.png",
+            "type": 3
+        }
+    ],
     "version": 1
 }
