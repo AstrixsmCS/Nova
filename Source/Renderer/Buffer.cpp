@@ -239,6 +239,21 @@ void IndexBuffer::Destroy()
 	m_Size = 0;
 }
 
+void IndexBuffer::SetData(const void* data, uint64_t size, uint64_t offset)
+{
+	assert(data);
+	assert(size > 0);
+	assert(offset + size <= m_Size);
+
+	void* mappedData = nullptr;
+
+	VK_CHECK(vmaMapMemory(Allocator::GetAllocator(), m_Allocation, &mappedData));
+
+	std::memcpy(static_cast<uint8_t*>(mappedData) + offset, data, size);
+
+	vmaUnmapMemory(Allocator::GetAllocator(), m_Allocation);
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Uniform Buffer
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

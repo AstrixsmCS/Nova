@@ -47,7 +47,7 @@ void EditorApplication::OnInitialize()
 		{ ShaderDataType::Float2, "TexCoord" },
 		{ ShaderDataType::Float4, "Tangent"  },
 	};
-	m_GeometryState.CullMode     = VK_CULL_MODE_NONE;
+	m_GeometryState.CullMode     = VK_CULL_MODE_BACK_BIT;
 	m_GeometryState.DepthTest    = true;
 	m_GeometryState.DepthWrite   = true;
 	m_GeometryState.DepthCompare = CompareOp::Less;
@@ -97,35 +97,28 @@ void EditorApplication::DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh)
 	const uint64_t cameraAddress    = m_CameraBuffers[Renderer::GetCurrentFrameIndex()].GetDeviceAddress();
 	const uint64_t materialsAddress = MaterialSystem::GetBuffer().GetDeviceAddress();
 
-	const auto& ranges = m_GeometryMaterial.GetShader()->GetPushConstantRanges();
+	const auto& shader = m_GeometryMaterial.GetShader();
+	const auto& ranges = shader->GetPushConstantRanges();
 	assert(!ranges.empty());
 	const auto& range = ranges[0];
 
-	const std::vector<Submesh>& submeshes = mesh.GetSubmeshes();
+	m_GeometryMaterial.Set("UBCamera",    cameraAddress);
+	m_GeometryMaterial.Set("SBMaterials", materialsAddress);
 
-	mesh.TraverseNodes([&](const Node& node, const glm::mat4& worldTransform)
+	for (const Submesh& submesh : mesh.GetSubmeshes())
 	{
-		for (uint32_t submeshIndex : node.Submeshes)
-		{
-			assert(submeshIndex < submeshes.size());
+		const uint32_t materialIndex = (submesh.MaterialIndex != UINT32_MAX && submesh.MaterialIndex < m_MaterialIndices.size()) ? m_MaterialIndices[submesh.MaterialIndex] : 0;
 
-			const Submesh& submesh = submeshes[submeshIndex];
+		m_GeometryMaterial.Set("Model",         submesh.Transform);
+		m_GeometryMaterial.Set("MaterialIndex", materialIndex);
 
-			const uint32_t materialIndex = (submesh.MaterialIndex != UINT32_MAX && submesh.MaterialIndex < m_MaterialIndices.size()) ? m_MaterialIndices[submesh.MaterialIndex] : 0;
+		const auto& storage = m_GeometryMaterial.GetUniformStorage();
+		assert(storage.size() == range.Size);
 
-			m_GeometryMaterial.Set("Model",         worldTransform);
-			m_GeometryMaterial.Set("UBCamera",      cameraAddress);
-			m_GeometryMaterial.Set("SBMaterials",   materialsAddress);
-			m_GeometryMaterial.Set("MaterialIndex", materialIndex);
+		vkCmdPushConstants(commandBuffer.GetHandle(), shader->GetPipelineLayout(), range.StageFlags, range.Offset, static_cast<uint32_t>(storage.size()), storage.data());
 
-			const auto& storage = m_GeometryMaterial.GetUniformStorage();
-			assert(storage.size() == range.Size);
-
-			vkCmdPushConstants(commandBuffer.GetHandle(), m_GeometryShader->GetPipelineLayout(), range.StageFlags, range.Offset, static_cast<uint32_t>(storage.size()), storage.data());
-
-			vkCmdDrawIndexed(commandBuffer.GetHandle(), submesh.IndexCount, 1, submesh.BaseIndex, static_cast<int32_t>(submesh.BaseVertex), 0);
-		}
-	});
+		vkCmdDrawIndexed(commandBuffer.GetHandle(), submesh.IndexCount, 1, submesh.BaseIndex, static_cast<int32_t>(submesh.BaseVertex), 0);
+	}
 }
 
 void EditorApplication::OnUpdate(Timestep ts)
@@ -232,7 +225,6 @@ void EditorApplication::OnShutdown()
 {
 	Renderer::WaitForGPU();
 
-	// Release textures before AssetManager shuts down
 	m_PNGTexture.reset();
 	m_HDRTexture.reset();
 

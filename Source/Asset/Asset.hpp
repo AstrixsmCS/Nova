@@ -11,7 +11,8 @@ enum class AssetType : uint8_t
 	None = 0,
 	Scene,
 	Shader,
-	Texture
+	Texture,
+	Mesh
 };
 
 enum class AssetFlag : uint8_t { None = 0, Missing = 1 << 0, Invalid = 1 << 1 };

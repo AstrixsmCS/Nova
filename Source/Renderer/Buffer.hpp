@@ -187,6 +187,8 @@ public:
 
 	void Destroy();
 
+	void SetData(const void* data, uint64_t size, uint64_t offset = 0);
+
 	uint32_t GetCount() const { return static_cast<uint32_t>(m_Size / sizeof(uint32_t)); }
 	uint64_t GetSize() const { return m_Size; }
 

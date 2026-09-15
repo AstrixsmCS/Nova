@@ -15,6 +15,7 @@
 #include <cassert>
 
 // Helpers
+
 static glm::mat4 NodeToMatrix(const fastgltf::Node& node)
 {
 	if (const auto* trs = std::get_if<fastgltf::TRS>(&node.transform))
@@ -33,10 +34,11 @@ static glm::mat4 NodeToMatrix(const fastgltf::Node& node)
 }
 
 // MikkTSpace
+
 struct MikkTSpaceUserData
 {
-	std::vector<Vertex>&   Vertices;
-	std::vector<Index>&    Indices;
+	std::vector<Vertex>& Vertices;
+	std::vector<Index>&  Indices;
 	std::vector<glm::vec4> Tangents;
 };
 
@@ -88,7 +90,7 @@ static void MikkSetTSpaceBasic(const SMikkTSpaceContext* context, const float ta
 	data->Tangents[iFace * 3 + iVert] = { tangent[0], tangent[1], tangent[2], sign };
 }
 
-bool Mesh::GenerateTangents(std::vector<Vertex>& vertices, std::vector<Index>& indices)
+static bool GenerateTangents(std::vector<Vertex>& vertices, std::vector<Index>& indices)
 {
 	if (vertices.empty() || indices.empty())
 		return false;
@@ -148,6 +150,29 @@ bool Mesh::GenerateTangents(std::vector<Vertex>& vertices, std::vector<Index>& i
 }
 
 // Mesh
+
+void Mesh::BakeTransforms()
+{
+	std::function<void(uint32_t, const glm::mat4&)> bake = [&](uint32_t nodeIndex, const glm::mat4& parentTransform)
+	{
+		const Node&     node           = m_Nodes[nodeIndex];
+		const glm::mat4 worldTransform = parentTransform * node.LocalTransform;
+
+		for (uint32_t submeshIndex : node.Submeshes)
+		{
+			m_Submeshes[submeshIndex].Transform      = worldTransform;
+			m_Submeshes[submeshIndex].LocalTransform = node.LocalTransform;
+			m_Submeshes[submeshIndex].NodeName       = node.Name;
+		}
+
+		for (uint32_t childIndex : node.Children)
+			bake(childIndex, worldTransform);
+	};
+
+	for (uint32_t root : m_RootNodes)
+		bake(root, glm::mat4(1.0f));
+}
+
 bool Mesh::Load(const std::filesystem::path& path)
 {
 	if (!std::filesystem::exists(path))
@@ -158,7 +183,6 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 	constexpr fastgltf::Options options =
 		fastgltf::Options::GenerateMeshIndices |
-		fastgltf::Options::DecomposeNodeMatrices |
 		fastgltf::Options::LoadExternalBuffers;
 
 	fastgltf::Parser parser(fastgltf::Extensions::KHR_materials_transmission);
@@ -194,8 +218,8 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 	m_Name = path.stem().string();
 
-	// Determine per-texture color space.
-	// Normal, metallic/roughness, and occlusion maps are always linear.
+	// Color space detection
+
 	std::vector<Format> textureFormats(asset.textures.size(), Format::RGBA8_SRGB);
 
 	for (const fastgltf::Material& gltfMaterial : asset.materials)
@@ -225,6 +249,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 	}
 
 	// Textures
+
 	m_Textures.reserve(asset.textures.size());
 
 	for (size_t i = 0; i < asset.textures.size(); i++)
@@ -328,18 +353,15 @@ bool Mesh::Load(const std::filesystem::path& path)
 		}, gltfImage.data);
 
 		if (loaded)
-		{
 			std::println("[Mesh] Loaded texture '{}' ({})", texture->GetSpecification().DebugName, format == Format::RGBA8_SRGB ? "sRGB" : "Linear");
-		}
 		else
-		{
 			std::println("[Mesh] Failed to load texture at index {}", i);
-		}
 
 		m_Textures.push_back(loaded ? std::move(texture) : nullptr);
 	}
 
 	// Materials
+
 	m_Materials.reserve(asset.materials.size());
 
 	for (const fastgltf::Material& gltfMaterial : asset.materials)
@@ -378,9 +400,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		if (pbr.baseColorTexture.has_value())
 		{
 			const size_t texIndex = pbr.baseColorTexture->textureIndex;
-			assert(texIndex < m_Textures.size());
-
-			if (m_Textures[texIndex])
+			if (texIndex < m_Textures.size() && m_Textures[texIndex])
 				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Albedo, .UvIndex = 0, .Enabled = true });
 		}
 
@@ -388,9 +408,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		if (gltfMaterial.normalTexture.has_value())
 		{
 			const size_t texIndex = gltfMaterial.normalTexture->textureIndex;
-			assert(texIndex < m_Textures.size());
-
-			if (m_Textures[texIndex])
+			if (texIndex < m_Textures.size() && m_Textures[texIndex])
 				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Normal, .UvIndex = 0, .Enabled = true });
 		}
 
@@ -398,9 +416,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		if (pbr.metallicRoughnessTexture.has_value())
 		{
 			const size_t texIndex = pbr.metallicRoughnessTexture->textureIndex;
-			assert(texIndex < m_Textures.size());
-
-			if (m_Textures[texIndex])
+			if (texIndex < m_Textures.size() && m_Textures[texIndex])
 				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::MetallicRoughness, .UvIndex = 0, .Enabled = true });
 		}
 
@@ -408,9 +424,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		if (gltfMaterial.occlusionTexture.has_value())
 		{
 			const size_t texIndex = gltfMaterial.occlusionTexture->textureIndex;
-			assert(texIndex < m_Textures.size());
-
-			if (m_Textures[texIndex])
+			if (texIndex < m_Textures.size() && m_Textures[texIndex])
 				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Occlusion, .UvIndex = 0, .Enabled = true });
 		}
 
@@ -418,9 +432,13 @@ bool Mesh::Load(const std::filesystem::path& path)
 	}
 
 	// Geometry
-	std::vector<Vertex> vertices;
-	std::vector<Index>  indices;
+	// geometrySubmeshes is temporary - holds one Submesh per glTF primitive.
+	// m_Submeshes is built only from per-node clones in the Nodes pass below.
 
+	std::vector<Vertex>  vertices;
+	std::vector<Index>   indices;
+
+	std::vector<Submesh>               geometrySubmeshes;
 	std::vector<std::vector<uint32_t>> meshSubmeshes(asset.meshes.size());
 
 	for (size_t meshIndex = 0; meshIndex < asset.meshes.size(); meshIndex++)
@@ -439,7 +457,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 			// Positions
 			{
 				const auto it = primitive.findAttribute("POSITION");
-				assert(it != primitive.attributes.end() && "Mesh has no POSITION attribute");
+				assert(it != primitive.attributes.end());
 
 				const fastgltf::Accessor& accessor = asset.accessors[it->accessorIndex];
 				primVertices.resize(accessor.count);
@@ -481,13 +499,13 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 			// Indices
 			{
-				assert(primitive.indicesAccessor.has_value() && "Mesh primitive has no indices");
+				assert(primitive.indicesAccessor.has_value());
 
 				const fastgltf::Accessor& accessor = asset.accessors[primitive.indicesAccessor.value()];
 
 				if (accessor.count % 3 != 0)
 				{
-					std::println("[Mesh] Triangle primitive has invalid index count: {}", accessor.count);
+					std::println("[Mesh] Invalid index count: {}", accessor.count);
 					return false;
 				}
 
@@ -510,14 +528,15 @@ bool Mesh::Load(const std::filesystem::path& path)
 			if (hasNormals && hasTexCoords)
 				GenerateTangents(primVertices, primIndices);
 
-			const uint32_t submeshIndex = static_cast<uint32_t>(m_Submeshes.size());
-			meshSubmeshes[meshIndex].push_back(submeshIndex);
+			const uint32_t geomIndex = static_cast<uint32_t>(geometrySubmeshes.size());
+			meshSubmeshes[meshIndex].push_back(geomIndex);
 
-			Submesh& submesh    = m_Submeshes.emplace_back();
+			Submesh& submesh    = geometrySubmeshes.emplace_back();
 			submesh.BaseVertex  = static_cast<uint32_t>(vertices.size());
 			submesh.BaseIndex   = static_cast<uint32_t>(indices.size() * 3);
 			submesh.VertexCount = static_cast<uint32_t>(primVertices.size());
 			submesh.IndexCount  = static_cast<uint32_t>(primIndices.size() * 3);
+			submesh.MeshName    = asset.meshes[meshIndex].name;
 
 			if (primitive.materialIndex.has_value())
 				submesh.MaterialIndex = static_cast<uint32_t>(primitive.materialIndex.value());
@@ -527,15 +546,14 @@ bool Mesh::Load(const std::filesystem::path& path)
 		}
 	}
 
-	// Nodes retain their original glTF indices. A glTF scene owns an array of
-	// root-node indices, so no synthetic root node is inserted.
+	// Nodes
+
 	m_Nodes.resize(asset.nodes.size());
 
-	// Create Nodes
 	for (size_t i = 0; i < asset.nodes.size(); i++)
 	{
 		const fastgltf::Node& gltfNode = asset.nodes[i];
-		Node&                 node     = m_Nodes[i];
+		Node& node = m_Nodes[i];
 
 		node.Name           = gltfNode.name;
 		node.LocalTransform = NodeToMatrix(gltfNode);
@@ -547,18 +565,10 @@ bool Mesh::Load(const std::filesystem::path& path)
 			node.Children.push_back(static_cast<uint32_t>(childIndex));
 		}
 
-		// Mesh / Submeshes
-		if (gltfNode.meshIndex.has_value())
-		{
-			const size_t mi = gltfNode.meshIndex.value();
-			assert(mi < meshSubmeshes.size());
-
-			for (uint32_t si : meshSubmeshes[mi])
-				node.Submeshes.push_back(si);
-		}
+		// Submeshes deferred
 	}
 
-	// Parent relationships — second pass so all nodes exist first.
+	// Parent relationships
 	for (size_t i = 0; i < m_Nodes.size(); i++)
 	{
 		for (uint32_t childIndex : m_Nodes[i].Children)
@@ -568,7 +578,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		}
 	}
 
-	// Scene / root nodes
+	// Root nodes
 	if (!asset.scenes.empty())
 	{
 		const size_t sceneIndex = asset.defaultScene.value_or(0);
@@ -585,7 +595,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 	}
 	else
 	{
-		// No scene declared - treat every parentless node as a root.
+		// No scene declared
 		for (size_t i = 0; i < m_Nodes.size(); i++)
 		{
 			if (m_Nodes[i].IsRoot())
@@ -593,7 +603,39 @@ bool Mesh::Load(const std::filesystem::path& path)
 		}
 	}
 
-	// GPU upload - CPU arrays are discarded after upload.
+	{
+		std::function<void(uint32_t)> populate = [&](uint32_t nodeIndex)
+		{
+			const fastgltf::Node& gltfNode = asset.nodes[nodeIndex];
+			Node& node = m_Nodes[nodeIndex];
+
+			if (gltfNode.meshIndex.has_value())
+			{
+				const size_t mi = gltfNode.meshIndex.value();
+				assert(mi < meshSubmeshes.size());
+
+				for (uint32_t geomIndex : meshSubmeshes[mi])
+				{
+					// Clone from stable geometrySubmeshes — each node owns its own record
+					const uint32_t nodeSubmeshIndex = static_cast<uint32_t>(m_Submeshes.size());
+					m_Submeshes.push_back(geometrySubmeshes[geomIndex]);
+					node.Submeshes.push_back(nodeSubmeshIndex);
+				}
+			}
+
+			for (uint32_t childIndex : node.Children)
+				populate(childIndex);
+		};
+
+		for (uint32_t root : m_RootNodes)
+			populate(root);
+	}
+
+	// Bake world transforms into submeshes
+	BakeTransforms();
+
+	// GPU upload
+
 	if (!vertices.empty())
 		m_VertexBuffer.Create(vertices.data(), vertices.size() * sizeof(Vertex));
 
@@ -630,24 +672,5 @@ void Mesh::Destroy()
 	m_RootNodes.clear();
 	m_Name.clear();
 	m_SceneName.clear();
-}
-
-void Mesh::TraverseNodes(const std::function<void(const Node&, const glm::mat4&)>& callback) const
-{
-	if (m_Nodes.empty())
-		return;
-
-	std::function<void(uint32_t, const glm::mat4&)> traverse = [&](uint32_t nodeIndex, const glm::mat4& parentTransform)
-	{
-		const Node&     node           = m_Nodes[nodeIndex];
-		const glm::mat4 worldTransform = parentTransform * node.LocalTransform;
-
-		callback(node, worldTransform);
-
-		for (uint32_t childIndex : node.Children)
-			traverse(childIndex, worldTransform);
-	};
-
-	for (uint32_t root : m_RootNodes)
-		traverse(root, glm::mat4(1.0f));
+	m_MeshType = MeshType::Static;
 }
