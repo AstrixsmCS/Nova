@@ -60,6 +60,11 @@ void ImGuiLayer::Initialize(SDL_Window* window)
 
 	ImGui::StyleColorsDark();
 
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+	style.Colors[ImGuiCol_ChildBg].w  = 1.0f;
+	style.Colors[ImGuiCol_PopupBg].w  = 1.0f;
+
 	m_Shader = std::make_shared<Shader>();
 	m_Shader->Load("Assets/Shaders/ImGui.slang");
 
@@ -82,10 +87,10 @@ void ImGuiLayer::Initialize(SDL_Window* window)
 	};
 
 	m_State.PrimitiveTopology = Topology::Triangle;
-	m_State.CullMode          = VK_CULL_MODE_NONE;
+	m_State.CullMode          = CullMode::None;
 	m_State.DepthTest         = false;
 	m_State.DepthWrite        = false;
-	m_State.Samples           = VK_SAMPLE_COUNT_1_BIT;
+	m_State.Blending          = BlendMode::Alpha;
 
 	const bool fontUploaded = UploadFontTexture();
 	assert(fontUploaded);

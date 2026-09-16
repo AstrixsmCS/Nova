@@ -185,7 +185,9 @@ bool Mesh::Load(const std::filesystem::path& path)
 		fastgltf::Options::GenerateMeshIndices |
 		fastgltf::Options::LoadExternalBuffers;
 
-	fastgltf::Parser parser(fastgltf::Extensions::KHR_materials_transmission);
+	fastgltf::Parser parser(
+		fastgltf::Extensions::KHR_materials_transmission |
+		fastgltf::Extensions::KHR_materials_emissive_strength);
 
 	auto dataResult = fastgltf::GltfDataBuffer::FromPath(path);
 	if (dataResult.error() != fastgltf::Error::None)
@@ -366,42 +368,51 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 	for (const fastgltf::Material& gltfMaterial : asset.materials)
 	{
-		Material material;
+		auto material = std::make_shared<Material>();
 
 		// Alpha mode
 		switch (gltfMaterial.alphaMode)
 		{
 			case fastgltf::AlphaMode::Opaque:
-				material.SetRenderMode(Material::RenderMode::Opaque);
-				material.SetAlphaCutoff(0.0f);
+				material->SetRenderMode(MaterialRenderMode::Opaque);
+				material->SetAlphaCutoff(0.0f);
 				break;
 			case fastgltf::AlphaMode::Mask:
-				material.SetRenderMode(Material::RenderMode::Cutout);
-				material.SetAlphaCutoff(static_cast<float>(gltfMaterial.alphaCutoff));
+				material->SetRenderMode(MaterialRenderMode::Cutout);
+				material->SetAlphaCutoff(static_cast<float>(gltfMaterial.alphaCutoff));
 				break;
 			case fastgltf::AlphaMode::Blend:
-				material.SetRenderMode(Material::RenderMode::Transparent);
-				material.SetBlendSrc(Material::BlendFactor::SrcAlpha);
-				material.SetBlendDst(Material::BlendFactor::OneMinusSrcAlpha);
+				material->SetRenderMode(MaterialRenderMode::Transparent);
+				material->SetBlendSrc(BlendFactor::SrcAlpha);
+				material->SetBlendDst(BlendFactor::OneMinusSrcAlpha);
 				break;
 		}
 
 		// PBR factors
 		const auto& pbr = gltfMaterial.pbrData;
 		const auto& c   = pbr.baseColorFactor;
-		material.SetColor({ c[0], c[1], c[2], c[3] });
-		material.SetMetalness(pbr.metallicFactor);
-		material.SetRoughness(pbr.roughnessFactor);
+		material->SetColor({ c[0], c[1], c[2], c[3] });
+		material->SetMetalness(pbr.metallicFactor);
+		material->SetRoughness(pbr.roughnessFactor);
+
+		const auto& emissive = gltfMaterial.emissiveFactor;
+		material->SetEmissiveColor(
+		{
+			static_cast<float>(emissive[0]),
+			static_cast<float>(emissive[1]),
+			static_cast<float>(emissive[2])
+		});
+		material->SetEmissiveStrength(static_cast<float>(gltfMaterial.emissiveStrength));
 
 		if (gltfMaterial.transmission)
-			material.SetTransmission(static_cast<float>(gltfMaterial.transmission->transmissionFactor));
+			material->SetTransmission(static_cast<float>(gltfMaterial.transmission->transmissionFactor));
 
 		// Albedo texture
 		if (pbr.baseColorTexture.has_value())
 		{
 			const size_t texIndex = pbr.baseColorTexture->textureIndex;
 			if (texIndex < m_Textures.size() && m_Textures[texIndex])
-				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Albedo, .UvIndex = 0, .Enabled = true });
+				material->SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Albedo, .UvIndex = 0, .Enabled = true });
 		}
 
 		// Normal texture
@@ -409,7 +420,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		{
 			const size_t texIndex = gltfMaterial.normalTexture->textureIndex;
 			if (texIndex < m_Textures.size() && m_Textures[texIndex])
-				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Normal, .UvIndex = 0, .Enabled = true });
+				material->SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Normal, .UvIndex = 0, .Enabled = true });
 		}
 
 		// Metallic/roughness texture
@@ -417,7 +428,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		{
 			const size_t texIndex = pbr.metallicRoughnessTexture->textureIndex;
 			if (texIndex < m_Textures.size() && m_Textures[texIndex])
-				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::MetallicRoughness, .UvIndex = 0, .Enabled = true });
+				material->SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::MetallicRoughness, .UvIndex = 0, .Enabled = true });
 		}
 
 		// Occlusion texture
@@ -425,7 +436,25 @@ bool Mesh::Load(const std::filesystem::path& path)
 		{
 			const size_t texIndex = gltfMaterial.occlusionTexture->textureIndex;
 			if (texIndex < m_Textures.size() && m_Textures[texIndex])
-				material.SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Occlusion, .UvIndex = 0, .Enabled = true });
+				material->SetTexture({ .Texture = m_Textures[texIndex], .Type = MapType::Occlusion, .UvIndex = 0, .Enabled = true });
+		}
+
+		// Emissive texture
+		if (gltfMaterial.emissiveTexture.has_value())
+		{
+			const auto& textureInfo = gltfMaterial.emissiveTexture.value();
+			const size_t texIndex = textureInfo.textureIndex;
+
+			if (texIndex < m_Textures.size() && m_Textures[texIndex])
+			{
+				material->SetTexture(
+				{
+					.Texture = m_Textures[texIndex],
+					.Type    = MapType::Emissive,
+					.UvIndex = static_cast<uint32_t>(textureInfo.texCoordIndex),
+					.Enabled = true
+				});
+			}
 		}
 
 		m_Materials.push_back(std::move(material));
@@ -659,15 +688,9 @@ void Mesh::Destroy()
 	m_VertexBuffer.Destroy();
 	m_IndexBuffer.Destroy();
 
-	for (auto& texture : m_Textures)
-	{
-		if (texture)
-			texture->Destroy();
-	}
-
+	m_Materials.clear();
 	m_Textures.clear();
 	m_Submeshes.clear();
-	m_Materials.clear();
 	m_Nodes.clear();
 	m_RootNodes.clear();
 	m_Name.clear();

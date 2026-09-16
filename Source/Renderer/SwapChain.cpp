@@ -336,51 +336,56 @@ void SwapChain::Present(VkSemaphore waitSemaphore)
 
 void SwapChain::FindImageFormatAndColorSpace()
 {
-	VkPhysicalDevice physicalDevice = RendererContext::Get().GetPhysicalDevice();
+	const VkPhysicalDevice physicalDevice = RendererContext::Get().GetPhysicalDevice();
 
-	uint32_t formatCount;
+	uint32_t formatCount = 0;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, m_Surface, &formatCount, nullptr));
+
 	assert(formatCount > 0);
+
 	std::vector<VkSurfaceFormatKHR> surfaceFormats(formatCount);
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, m_Surface, &formatCount, surfaceFormats.data()));
 
-	// No preferred format — pick our ideal default.
-	if (formatCount == 1 && surfaceFormats[0].format == VK_FORMAT_UNDEFINED)
-	{
-		m_ColorFormat = VK_FORMAT_B8G8R8A8_UNORM;
-		m_Format      = Format::BGRA8_UNorm;
-		m_ColorSpace  = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		return;
-	}
+	surfaceFormats.resize(formatCount);
 
-	// Prefer BGRA8 UNORM
-	for (const auto& surfaceFormat : surfaceFormats)
+	struct PreferredFormat
 	{
-		if (surfaceFormat.format == VK_FORMAT_B8G8R8A8_UNORM)
+		VkFormat VulkanFormat;
+		Format   RendererFormat;
+	};
+
+	constexpr PreferredFormat preferredFormats[] =
+	{
+		{ VK_FORMAT_B8G8R8A8_SRGB, Format::BGRA8_SRGB },
+		{ VK_FORMAT_R8G8B8A8_SRGB, Format::RGBA8_SRGB },
+	};
+
+	for (const auto& preferred : preferredFormats)
+	{
+		for (const auto& available : surfaceFormats)
 		{
-			m_ColorFormat = surfaceFormat.format;
-			m_Format      = Format::BGRA8_UNorm;
-			m_ColorSpace  = surfaceFormat.colorSpace;
+			const bool unrestricted = surfaceFormats.size() == 1 && available.format == VK_FORMAT_UNDEFINED;
+
+			if (available.colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+				continue;
+
+			if (!unrestricted && available.format != preferred.VulkanFormat)
+				continue;
+
+			m_ColorFormat = preferred.VulkanFormat;
+			m_Format      = preferred.RendererFormat;
+			m_ColorSpace  = available.colorSpace;
+
+			std::println(
+				"[SwapChain] Format: {}, Color space: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR",
+				m_ColorFormat == VK_FORMAT_B8G8R8A8_SRGB
+					? "VK_FORMAT_B8G8R8A8_SRGB"
+					: "VK_FORMAT_R8G8B8A8_SRGB"
+			);
 			return;
 		}
 	}
 
-	// RGBA8 UNORM fallback
-	for (const auto& surfaceFormat : surfaceFormats)
-	{
-		if (surfaceFormat.format == VK_FORMAT_R8G8B8A8_UNORM)
-		{
-			m_ColorFormat = surfaceFormat.format;
-			m_Format      = Format::RGBA8_UNorm;
-			m_ColorSpace  = surfaceFormat.colorSpace;
-			return;
-		}
-	}
-
-	// No suitable format found
-	std::println("[SwapChain] No suitable surface format found. Available formats:");
-	for (const auto& surfaceFormat : surfaceFormats)
-		std::println("  format={} colorSpace={}", static_cast<uint32_t>(surfaceFormat.format), static_cast<uint32_t>(surfaceFormat.colorSpace));
-
-	assert(false && "SwapChain: No suitable surface format found");
+	std::println("[SwapChain] No supported sRGB surface format found.");
+	std::abort();
 }

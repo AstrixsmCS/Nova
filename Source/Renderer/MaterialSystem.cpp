@@ -1,98 +1,119 @@
 #include "MaterialSystem.hpp"
 
 #include <cassert>
+#include <print>
 
-StorageBuffer MaterialSystem::s_Buffer;
-
-std::vector<MaterialSystem::MaterialSlot> MaterialSystem::s_Slots;
-std::vector<uint32_t> MaterialSystem::s_FreeIndices;
+std::array<StorageBuffer, MaterialSystem::FRAMES_IN_FLIGHT> MaterialSystem::s_Buffers;
+std::vector<MaterialSystem::MaterialSlot>                   MaterialSystem::s_Slots;
+std::vector<uint32_t>                                       MaterialSystem::s_FreeIndices;
+std::unordered_map<const Material*, uint32_t>               MaterialSystem::s_MaterialIndex;
 
 void MaterialSystem::Initialize()
 {
 	s_Slots.resize(MAX_MATERIALS);
 
-	s_FreeIndices.reserve(MAX_MATERIALS);
-
-	for (uint32_t i = MAX_MATERIALS; i > 0; --i)
-	{
+	// Reserve slot 0 as the fallback — populate free list from 1 onward
+	s_FreeIndices.reserve(MAX_MATERIALS - 1);
+	for (uint32_t i = MAX_MATERIALS; i > 1; --i)
 		s_FreeIndices.push_back(i - 1);
-	}
 
 	const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(MAX_MATERIALS) * MATERIAL_SIZE;
 
-	s_Buffer.Create(bufferSize);
+	for (StorageBuffer& buffer : s_Buffers)
+		buffer.Create(bufferSize);
+
+	// Upload default fallback material to all frame buffers
+	const GPUMaterialData fallback{};
+	for (StorageBuffer& buffer : s_Buffers)
+		buffer.SetData(&fallback, MATERIAL_SIZE, 0);
 }
 
 void MaterialSystem::Shutdown()
 {
+	s_MaterialIndex.clear();
 	s_Slots.clear();
 	s_FreeIndices.clear();
 
-	s_Buffer.Destroy();
+	for (StorageBuffer& buffer : s_Buffers)
+		buffer.Destroy();
 }
 
-uint32_t MaterialSystem::RegisterMaterial(const std::shared_ptr<Material>& material)
+uint32_t MaterialSystem::PrepareMaterial(const std::shared_ptr<Material>& material)
 {
-	assert(material);
+	if (!material)
+		return FallbackIndex;
 
+	// Return existing slot if already registered
+	const auto it = s_MaterialIndex.find(material.get());
+	if (it != s_MaterialIndex.end())
+		return it->second;
+
+	// Allocate a new slot
 	if (s_FreeIndices.empty())
 	{
-		assert(false && "MaterialSystem: Out of material slots!");
-		return UINT32_MAX;
+		std::println("[MaterialSystem] Out of material slots, returning fallback.");
+		return FallbackIndex;
 	}
 
 	const uint32_t index = s_FreeIndices.back();
-
 	s_FreeIndices.pop_back();
 
-	s_Slots[index].material = material;
+	s_Slots[index].MaterialRef         = material;
+	s_Slots[index].UploadedRevisions   = {};
 
-	material->MarkDirty();
+	s_MaterialIndex[material.get()] = index;
 
 	return index;
 }
 
-void MaterialSystem::UnregisterMaterial(uint32_t index)
+void MaterialSystem::UploadPendingMaterials(uint32_t frameIndex)
 {
-	if (index >= MAX_MATERIALS)
-		return;
+	assert(frameIndex < FRAMES_IN_FLIGHT);
 
-	MaterialSlot& slot = s_Slots[index];
+	StorageBuffer& buffer = s_Buffers[frameIndex];
 
-	if (!slot.material)
-		return;
-
-	slot.material.reset();
-
-	const GPUMaterialData emptyMaterial{};
-
-	const VkDeviceSize offset = static_cast<VkDeviceSize>(index) * MATERIAL_SIZE;
-
-	s_Buffer.SetData(&emptyMaterial, sizeof(GPUMaterialData), offset);
-
-	s_FreeIndices.push_back(index);
-}
-
-void MaterialSystem::Update()
-{
-	for (uint32_t index = 0; index < MAX_MATERIALS; ++index)
+	for (uint32_t index = 1; index < MAX_MATERIALS; ++index)
 	{
 		MaterialSlot& slot = s_Slots[index];
 
-		if (!slot.material)
+		if (!slot.MaterialRef)
 			continue;
 
-		if (!slot.material->IsGpuDirty())
+		const uint64_t currentRevision = slot.MaterialRef->GetRevision();
+
+		if (slot.UploadedRevisions[frameIndex] == currentRevision)
 			continue;
 
-		slot.material->UpdateGPUData();
+		slot.MaterialRef->UpdateGPUData();
 
-		const GPUMaterialData& data = slot.material->GetGPUData();
+		const GPUMaterialData& data   = slot.MaterialRef->GetGPUData();
+		const VkDeviceSize     offset = static_cast<VkDeviceSize>(index) * MATERIAL_SIZE;
 
-		const VkDeviceSize offset = static_cast<VkDeviceSize>(index) * MATERIAL_SIZE;
+		buffer.SetData(&data, MATERIAL_SIZE, offset);
 
-		s_Buffer.SetData(&data, sizeof(GPUMaterialData), offset);
-
-		slot.material->ClearGpuDirty();
+		slot.UploadedRevisions[frameIndex] = currentRevision;
 	}
+}
+
+void MaterialSystem::Clear()
+{
+	// Reset all slots except the fallback at index 0
+	for (uint32_t index = 1; index < MAX_MATERIALS; ++index)
+	{
+		MaterialSlot& slot = s_Slots[index];
+
+		if (!slot.MaterialRef)
+			continue;
+
+		slot.MaterialRef.reset();
+		slot.UploadedRevisions = {};
+	}
+
+	s_MaterialIndex.clear();
+
+	// Restore the free list
+	s_FreeIndices.clear();
+	s_FreeIndices.reserve(MAX_MATERIALS - 1);
+	for (uint32_t i = MAX_MATERIALS; i > 1; --i)
+		s_FreeIndices.push_back(i - 1);
 }

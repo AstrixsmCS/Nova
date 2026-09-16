@@ -142,11 +142,11 @@ bool Material::IsMapEnabled(MapType type) const
 
 void Material::UpdateGPUData()
 {
-	// Reset all texture indices and flags.
 	m_GPUData.AlbedoIndex            = 0;
 	m_GPUData.NormalIndex            = 0;
 	m_GPUData.MetallicRoughnessIndex = 0;
 	m_GPUData.OcclusionIndex         = 0;
+	m_GPUData.EmissiveIndex          = 0;
 	m_GPUData.Flags                  = 0;
 
 	for (const MapInfo& map : m_Maps)
@@ -166,32 +166,37 @@ void Material::UpdateGPUData()
 		switch (map.Type)
 		{
 			case MapType::Albedo:
-				slot = &m_GPUData.AlbedoIndex;
+				slot       = &m_GPUData.AlbedoIndex;
 				flagBit    = 3;
 				uvBitShift = 16;
 				break;
 			case MapType::Normal:
-				slot = &m_GPUData.NormalIndex;
+				slot       = &m_GPUData.NormalIndex;
 				flagBit    = 0;
 				uvBitShift = 18;
 				break;
 			case MapType::MetallicRoughness:
-				slot = &m_GPUData.MetallicRoughnessIndex;
+				slot       = &m_GPUData.MetallicRoughnessIndex;
 				flagBit    = 1;
 				uvBitShift = 20;
 				break;
 			case MapType::Occlusion:
-				slot = &m_GPUData.OcclusionIndex;
+				slot       = &m_GPUData.OcclusionIndex;
 				flagBit    = 2;
 				uvBitShift = 22;
+				break;
+			case MapType::Emissive:
+				slot       = &m_GPUData.EmissiveIndex;
+				flagBit    = 4;
+				uvBitShift = 24;
 				break;
 			default:
 				continue;
 		}
 
-		*slot              = index;
-		m_GPUData.Flags   |= (1u << flagBit);
-		m_GPUData.Flags   |= ((map.UvIndex & 0x3u) << uvBitShift);
+		*slot             = index;
+		m_GPUData.Flags  |= (1u << flagBit);
+		m_GPUData.Flags  |= ((map.UvIndex & 0x3u) << uvBitShift);
 	}
 }
 
@@ -203,6 +208,7 @@ const char* Material::ToString(MapType type)
 		case MapType::Normal:            return "Normal";
 		case MapType::MetallicRoughness: return "MetallicRoughness";
 		case MapType::Occlusion:         return "Occlusion";
+		case MapType::Emissive:          return "Emissive";
 		default:                         return "Unknown";
 	}
 }

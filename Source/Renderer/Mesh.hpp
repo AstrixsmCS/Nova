@@ -88,7 +88,7 @@ public:
 	const std::vector<Submesh>&                    GetSubmeshes()  const { return m_Submeshes;  }
 	const std::vector<Node>&                       GetNodes()      const { return m_Nodes;      }
 	const std::vector<uint32_t>&                   GetRootNodes()  const { return m_RootNodes;  }
-	const std::vector<Material>&                   GetMaterials()  const { return m_Materials;  }
+	const std::vector<std::shared_ptr<Material>>&  GetMaterials()  const { return m_Materials;  }
 	const std::vector<std::shared_ptr<Texture2D>>& GetTextures()   const { return m_Textures;   }
 
 	const std::string& GetName()      const { return m_Name;      }
@@ -105,7 +105,7 @@ private:
 	std::vector<Submesh>                    m_Submeshes;
 	std::vector<Node>                       m_Nodes;
 	std::vector<uint32_t>                   m_RootNodes;
-	std::vector<Material>                   m_Materials;
+	std::vector<std::shared_ptr<Material>>  m_Materials;
 	std::vector<std::shared_ptr<Texture2D>> m_Textures;
 
 	VertexBuffer m_VertexBuffer;

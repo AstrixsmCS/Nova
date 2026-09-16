@@ -8,7 +8,7 @@
 
 #include <glm/glm.hpp>
 
-#include <stack>
+#include <cassert>
 
 EditorApplication::EditorApplication(const ApplicationSpecification& specification)
 	: Application(specification)
@@ -47,44 +47,27 @@ void EditorApplication::OnInitialize()
 		{ ShaderDataType::Float2, "TexCoord" },
 		{ ShaderDataType::Float4, "Tangent"  },
 	};
-	m_GeometryState.CullMode     = VK_CULL_MODE_BACK_BIT;
+	m_GeometryState.CullMode     = CullMode::Back;
 	m_GeometryState.DepthTest    = true;
 	m_GeometryState.DepthWrite   = true;
 	m_GeometryState.DepthCompare = CompareOp::Less;
 
-	m_Mesh.Load("Assets/Meshes/DamagedHelmet/DamagedHelmet.glb");
+	m_Mesh.Load("Assets/Meshes/Sponza/Sponza.gltf");
 
-	m_MaterialIndices.reserve(m_Mesh.GetMaterials().size());
-	for (const Material& material : m_Mesh.GetMaterials())
-	{
-		auto shared = std::shared_ptr<Material>(const_cast<Material*>(&material), [](Material*){});
-		m_MaterialIndices.push_back(MaterialSystem::RegisterMaterial(shared));
-	}
+	for (const std::shared_ptr<Material>& material : m_Mesh.GetMaterials())
+		MaterialSystem::PrepareMaterial(material);
 
 	for (UniformBuffer& buffer : m_CameraBuffers)
 		buffer.Create(sizeof(CameraUniforms));
 
-	const VkExtent2D extent = Renderer::GetSwapChain().GetExtent();
-	const float      aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+	const uint32_t width  = Renderer::GetSwapChain().GetWidth();
+	const uint32_t height = Renderer::GetSwapChain().GetHeight();
+	const float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
 
-	m_Camera = Camera(glm::radians(60.0f), aspect, 0.1f, 1000.0f);
+	m_Camera = Camera(glm::radians(60.0f), aspectRatio, 0.1f, 1000.0f);
 	m_Camera.SetPosition({ 0.0f, 0.0f, 3.0f });
 
-	CreateDepthImage(extent.width, extent.height);
-
-	// ==== Texture pipeline test ====
-
-	m_PNGHandle  = AssetManager::RegisterAsset("Textures/Test.png");
-	m_PNGTexture = AssetManager::GetAsset<Texture2D>(m_PNGHandle);
-	assert(static_cast<uint64_t>(m_PNGHandle) != 0);
-	assert(m_PNGTexture && m_PNGTexture->IsValid());
-	NV_TRACE("PNG loaded: {}x{}, {} mips, bindless index {}", m_PNGTexture->GetWidth(), m_PNGTexture->GetHeight(), m_PNGTexture->GetMipCount(), m_PNGTexture->GetBindlessIndex());
-
-	m_HDRHandle  = AssetManager::RegisterAsset("Textures/Test.hdr");
-	m_HDRTexture = AssetManager::GetAsset<Texture2D>(m_HDRHandle);
-	assert(static_cast<uint64_t>(m_HDRHandle) != 0);
-	assert(m_HDRTexture && m_HDRTexture->IsValid());
-	NV_TRACE("HDR loaded: {}x{}, {} mips, bindless index {}", m_HDRTexture->GetWidth(), m_HDRTexture->GetHeight(), m_HDRTexture->GetMipCount(), m_HDRTexture->GetBindlessIndex());
+	CreateDepthImage(width, height);
 }
 
 void EditorApplication::DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh)
@@ -94,20 +77,31 @@ void EditorApplication::DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh)
 	vkCmdBindVertexBuffers(commandBuffer.GetHandle(), 0, 1, &vb, &offset);
 	vkCmdBindIndexBuffer(commandBuffer.GetHandle(), mesh.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-	const uint64_t cameraAddress    = m_CameraBuffers[Renderer::GetCurrentFrameIndex()].GetDeviceAddress();
-	const uint64_t materialsAddress = MaterialSystem::GetBuffer().GetDeviceAddress();
+	const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
+
+	const uint64_t cameraAddress   = m_CameraBuffers[frameIndex].GetDeviceAddress();
+	const uint64_t materialsAddress = MaterialSystem::GetBuffer(frameIndex).GetDeviceAddress();
 
 	const auto& shader = m_GeometryMaterial.GetShader();
 	const auto& ranges = shader->GetPushConstantRanges();
 	assert(!ranges.empty());
 	const auto& range = ranges[0];
 
-	m_GeometryMaterial.Set("UBCamera",    cameraAddress);
-	m_GeometryMaterial.Set("SBMaterials", materialsAddress);
+	const float     directionLengthSquared = glm::dot(m_DirectionalLight.Direction, m_DirectionalLight.Direction);
+	const glm::vec3 lightDirection         = directionLengthSquared > 0.000001f ? glm::normalize(m_DirectionalLight.Direction) : glm::vec3(0.0f, -1.0f, 0.0f);
+
+	m_GeometryMaterial.Set("UBCamera",            cameraAddress);
+	m_GeometryMaterial.Set("SBMaterials",         materialsAddress);
+	m_GeometryMaterial.Set("LightDirection",      glm::vec4(lightDirection, 0.0f));
+	m_GeometryMaterial.Set("LightColorIntensity", glm::vec4(m_DirectionalLight.Color, m_DirectionalLight.Intensity));
+
+	const auto& materials = mesh.GetMaterials();
 
 	for (const Submesh& submesh : mesh.GetSubmeshes())
 	{
-		const uint32_t materialIndex = (submesh.MaterialIndex != UINT32_MAX && submesh.MaterialIndex < m_MaterialIndices.size()) ? m_MaterialIndices[submesh.MaterialIndex] : 0;
+		const std::shared_ptr<Material>& material = (submesh.MaterialIndex != UINT32_MAX && submesh.MaterialIndex < materials.size()) ? materials[submesh.MaterialIndex] : nullptr;
+
+		const uint32_t materialIndex = MaterialSystem::PrepareMaterial(material);
 
 		m_GeometryMaterial.Set("Model",         submesh.Transform);
 		m_GeometryMaterial.Set("MaterialIndex", materialIndex);
@@ -125,21 +119,24 @@ void EditorApplication::OnUpdate(Timestep ts)
 {
 	m_Camera.OnUpdate(ts);
 
-	MaterialSystem::Update();
+	const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
+
+	MaterialSystem::UploadPendingMaterials(frameIndex);
 
 	CommandBuffer& cmd  = Renderer::GetCurrentCommandBuffer();
 	SwapChain&     swap = Renderer::GetSwapChain();
 
 	{
-		const VkExtent2D extent = swap.GetExtent();
+		const uint32_t width  = swap.GetWidth();
+		const uint32_t height = swap.GetHeight();
 
-		if (m_DepthImage.GetWidth()  != extent.width || m_DepthImage.GetHeight() != extent.height)
+		if (m_DepthImage.GetWidth()  != width || m_DepthImage.GetHeight() != height)
 		{
 			Renderer::WaitForGPU();
-			CreateDepthImage(extent.width, extent.height);
+			CreateDepthImage(width, height);
 
-			const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
-			m_Camera.SetPerspective(glm::radians(60.0f), aspect, 0.1f, 1000.0f);
+			const float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+			m_Camera.SetPerspective(glm::radians(60.0f), aspectRatio, 0.1f, 1000.0f);
 		}
 	}
 
@@ -154,7 +151,7 @@ void EditorApplication::OnUpdate(Timestep ts)
 			.Position              = m_Camera.GetPosition(),
 		};
 
-		m_CameraBuffers[Renderer::GetCurrentFrameIndex()].SetData(&uniforms, sizeof(CameraUniforms));
+		m_CameraBuffers[frameIndex].SetData(&uniforms, sizeof(CameraUniforms));
 	}
 
 	// ==== Barriers: undefined → attachments ====
@@ -225,16 +222,15 @@ void EditorApplication::OnShutdown()
 {
 	Renderer::WaitForGPU();
 
-	m_PNGTexture.reset();
-	m_HDRTexture.reset();
-
-	for (auto& buffer : m_CameraBuffers)
+	for (UniformBuffer& buffer : m_CameraBuffers)
 		buffer.Destroy();
+
+	MaterialSystem::Clear();
+	MaterialSystem::Shutdown();
 
 	m_DepthImage.Destroy();
 	m_Mesh.Destroy();
 	m_GeometryShader->Shutdown();
 
-	MaterialSystem::Shutdown();
 	Descriptor::Shutdown();
 }

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/Application.hpp"
-#include "Asset/AssetManager.hpp"
 
 #include "Renderer/Buffer.hpp"
 #include "Renderer/Camera.hpp"
@@ -22,6 +21,13 @@ struct CameraUniforms
 	glm::mat4 InverseViewProjection { 1.0f };
 	glm::vec3 Position;
 	float     _Pad0 = 0.0f;
+};
+
+struct DirectionalLight
+{
+	glm::vec3 Direction{ -1.0f, -1.0f, -1.0f };
+	glm::vec3 Color{ 1.0f, 1.0f, 1.0f };
+	float Intensity = 3.0f;
 };
 
 class EditorApplication final : public Application
@@ -45,16 +51,10 @@ private:
 	Material                m_GeometryMaterial;
 
 	Mesh                  m_Mesh;
-	std::vector<uint32_t> m_MaterialIndices;
+	DirectionalLight m_DirectionalLight;
 
 	Camera m_Camera;
 	std::array<UniformBuffer, Renderer::GetFramesInFlight()> m_CameraBuffers;
 
 	Image2D m_DepthImage;
-
-	// Texture pipeline test
-	AssetHandle                m_PNGHandle;
-	AssetHandle                m_HDRHandle;
-	std::shared_ptr<Texture2D> m_PNGTexture;
-	std::shared_ptr<Texture2D> m_HDRTexture;
 };

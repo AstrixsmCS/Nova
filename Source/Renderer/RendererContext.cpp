@@ -538,6 +538,7 @@ void RendererContext::CreateLogicalDevice()
 		.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE,
 		.descriptorBindingPartiallyBound = VK_TRUE,
 		.runtimeDescriptorArray = VK_TRUE,
+		.scalarBlockLayout = VK_TRUE,
 		.timelineSemaphore = VK_TRUE,
 		.bufferDeviceAddress = VK_TRUE,
 	};

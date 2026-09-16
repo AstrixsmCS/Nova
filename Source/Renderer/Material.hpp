@@ -17,6 +17,7 @@ enum class MapType : uint8_t
 	Normal,
 	MetallicRoughness,
 	Occlusion,
+	Emissive,
 };
 
 struct MapInfo
@@ -38,6 +39,7 @@ struct GPUMaterialData
 	uint32_t NormalIndex = 0;
 	uint32_t MetallicRoughnessIndex = 0;
 	uint32_t OcclusionIndex = 0;
+	uint32_t EmissiveIndex = 0;
 
 	// Factors
 	float Metalness = 0.0f;
@@ -45,18 +47,25 @@ struct GPUMaterialData
 	float AlphaCutoff = 0.5f;
 	uint32_t Flags = 0;
 
+	glm::vec4 Emissive = { 0.0f, 0.0f, 0.0f, 1.0f };
+
 	float Transmission = 0.0f;
 };
-static_assert(sizeof(GPUMaterialData) == 52);
+static_assert(sizeof(GPUMaterialData) == 72);
 
-class Material {
+enum class MaterialRenderMode : uint8_t
+{
+	Opaque,
+	Cutout,
+	Transparent,
+	Fade
+};
+
+class Material
+{
 public:
 	Material() = default;
 	explicit Material(std::shared_ptr<Shader> shader);
-
-	enum class RenderMode { Opaque, Cutout, Transparent, Fade };
-	enum class BlendFactor { Zero, One, SrcAlpha, OneMinusSrcAlpha, DstAlpha, OneMinusDstAlpha };
-	enum class CullMode { Back, Front, None };
 
 	// Shader
 	void SetShader(std::shared_ptr<Shader> shader);
@@ -90,11 +99,11 @@ public:
 	bool IsMapEnabled(MapType type) const;
 
 	// Render mode
-	RenderMode GetRenderMode() const { return m_RenderMode; }
-	void SetRenderMode(RenderMode mode) { m_RenderMode = mode; MarkDirty(); }
+	MaterialRenderMode GetRenderMode() const              { return m_RenderMode; }
+	void               SetRenderMode(MaterialRenderMode mode) { m_RenderMode = mode; MarkDirty(); }
 
-	bool IsTransparent()  const { return m_RenderMode == RenderMode::Transparent || m_RenderMode == RenderMode::Fade; }
-	bool IsTransmissive() const { return m_GPUData.Transmission > 0.0f; }
+	bool IsTransparent()    const { return m_RenderMode == MaterialRenderMode::Transparent || m_RenderMode == MaterialRenderMode::Fade; }
+	bool IsTransmissive()   const { return m_GPUData.Transmission > 0.0f; }
 	bool NeedsForwardPass() const { return IsTransparent() || IsTransmissive(); }
 
 	// Alpha cutoff — used when RenderMode == Cutout
@@ -117,21 +126,23 @@ public:
 	float     GetMetalness() const { return m_GPUData.Metalness; }
 	float     GetRoughness() const { return m_GPUData.Roughness; }
 	float     GetTransmission() const { return m_GPUData.Transmission; }
+	glm::vec3 GetEmissiveColor() const { return glm::vec3(m_GPUData.Emissive); }
+	float     GetEmissiveStrength() const { return m_GPUData.Emissive.a; }
 
-	void SetColor(const glm::vec4& color)     { m_GPUData.Albedo = color;              MarkDirty(); }
-	void SetMetalness(float metalness)        { m_GPUData.Metalness = metalness;        MarkDirty(); }
-	void SetRoughness(float roughness)        { m_GPUData.Roughness = roughness;        MarkDirty(); }
-	void SetTransmission(float transmission)  { m_GPUData.Transmission = transmission;  MarkDirty(); }
+	void SetColor(const glm::vec4& color)         { m_GPUData.Albedo = color;                                     MarkDirty(); }
+	void SetMetalness(float metalness)            { m_GPUData.Metalness = metalness;                              MarkDirty(); }
+	void SetRoughness(float roughness)            { m_GPUData.Roughness = roughness;                              MarkDirty(); }
+	void SetTransmission(float transmission)      { m_GPUData.Transmission = transmission;                        MarkDirty(); }
+	void SetEmissiveColor(const glm::vec3& color) { m_GPUData.Emissive = glm::vec4(color, m_GPUData.Emissive.a);  MarkDirty(); }
+	void SetEmissiveStrength(float strength)      { m_GPUData.Emissive.a = strength;                              MarkDirty(); }
 
-
-	// GPU Data Access
+	// GPU data
 	const GPUMaterialData& GetGPUData() const { return m_GPUData; }
 	void UpdateGPUData();
 
-	// Dirty tracking
-	bool IsGpuDirty()  const { return m_GpuDirty; }
-	void MarkDirty()         { m_GpuDirty = true;  }
-	void ClearGpuDirty()     { m_GpuDirty = false; }
+	// Revision tracking
+	uint64_t GetRevision() const { return m_Revision; }
+	void     MarkDirty()         { ++m_Revision;      }
 
 	static const char* ToString(MapType type);
 private:
@@ -146,12 +157,12 @@ private:
 
 	GPUMaterialData m_GPUData;
 
-	RenderMode m_RenderMode = RenderMode::Opaque;
-	BlendFactor m_BlendSrc = BlendFactor::SrcAlpha;
-	BlendFactor m_BlendDst = BlendFactor::OneMinusSrcAlpha;
-	CullMode m_CullMode = CullMode::Back;
+	MaterialRenderMode m_RenderMode = MaterialRenderMode::Opaque;
+	BlendFactor        m_BlendSrc   = BlendFactor::SrcAlpha;
+	BlendFactor        m_BlendDst   = BlendFactor::OneMinusSrcAlpha;
+	CullMode           m_CullMode   = CullMode::Back;
 
-	bool m_GpuDirty  = true;
+	uint64_t m_Revision = 1;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const MapType type)

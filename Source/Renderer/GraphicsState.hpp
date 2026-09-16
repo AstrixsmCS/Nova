@@ -28,11 +28,9 @@ struct GraphicsState
 	CompareOp DepthCompare      = CompareOp::Less;
 	BlendMode Blending          = BlendMode::None;
 
-	VkCullModeFlags CullMode    = VK_CULL_MODE_BACK_BIT;
-	VkFrontFace     FrontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	VkPolygonMode   PolygonMode = VK_POLYGON_MODE_FILL;
-
-	VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT;
+	CullMode    CullMode      = CullMode::Back;
+	WindingMode FrontFace     = WindingMode::CCW;
+	PolygonMode PolygonMode   = PolygonMode::Fill;
 
 	bool  DepthTest  = true;
 	bool  DepthWrite = true;
@@ -148,9 +146,9 @@ private:
 	void ApplyRasterization(VkCommandBuffer cmd) const
 	{
 		vkCmdSetRasterizerDiscardEnable(cmd, VK_FALSE);
-		vkCmdSetPolygonModeEXT(cmd, PolygonMode);
-		vkCmdSetCullMode(cmd, CullMode);
-		vkCmdSetFrontFace(cmd, FrontFace);
+		vkCmdSetPolygonModeEXT(cmd, ToVulkan(PolygonMode));
+		vkCmdSetCullMode(cmd, ToVulkan(CullMode));
+		vkCmdSetFrontFace(cmd, ToVulkan(FrontFace));
 		vkCmdSetDepthBiasEnable(cmd, VK_FALSE);
 		vkCmdSetDepthClampEnableEXT(cmd, VK_FALSE);
 		vkCmdSetLineWidth(cmd, LineWidth);
@@ -158,11 +156,11 @@ private:
 
 	void ApplyMultisampling(VkCommandBuffer cmd) const
 	{
-		vkCmdSetRasterizationSamplesEXT(cmd, Samples);
+		vkCmdSetRasterizationSamplesEXT(cmd, VK_SAMPLE_COUNT_1_BIT);
 
 		const VkSampleMask sampleMask = ~VkSampleMask{ 0 };
 
-		vkCmdSetSampleMaskEXT(cmd, Samples, &sampleMask);
+		vkCmdSetSampleMaskEXT(cmd, VK_SAMPLE_COUNT_1_BIT, &sampleMask);
 
 		vkCmdSetAlphaToCoverageEnableEXT(cmd, VK_FALSE);
 		vkCmdSetAlphaToOneEnableEXT(cmd, VK_FALSE);
