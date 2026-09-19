@@ -1,6 +1,6 @@
 #include "Buffer.hpp"
 
-#include "RendererContext.hpp"
+#include "Context.hpp"
 
 #include <vma/vk_mem_alloc.h>
 
@@ -84,7 +84,7 @@ void VertexBuffer::Create(const void* data, uint64_t size, VertexBufferUsage usa
 
 	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &bufferInfo, &allocationInfo, &m_Buffer, &m_Allocation, nullptr));
 
-	CommandPool& commandPool = RendererContext::Get().GetImmediateCommandPool();
+	CommandPool& commandPool = Context::Get().GetImmediateCommandPool();
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -207,7 +207,7 @@ void IndexBuffer::Create(const void* data, uint64_t size)
 
 	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &bufferInfo, &allocationInfo, &m_Buffer, &m_Allocation, nullptr));
 
-	CommandPool& commandPool = RendererContext::Get().GetImmediateCommandPool();
+	CommandPool& commandPool = Context::Get().GetImmediateCommandPool();
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -286,7 +286,7 @@ void UniformBuffer::Create(uint32_t size)
 		.buffer = m_Buffer
 	};
 
-	m_DeviceAddress = vkGetBufferDeviceAddress(RendererContext::Get().GetDevice(), &addressInfo);
+	m_DeviceAddress = vkGetBufferDeviceAddress(Context::Get().GetDevice(), &addressInfo);
 
 	assert(m_DeviceAddress != 0);
 }
@@ -352,7 +352,7 @@ void StorageBuffer::Create(VkDeviceSize size)
 		.buffer = m_Buffer
 	};
 
-	m_DeviceAddress = vkGetBufferDeviceAddress(RendererContext::Get().GetDevice(), &addressInfo);
+	m_DeviceAddress = vkGetBufferDeviceAddress(Context::Get().GetDevice(), &addressInfo);
 
 	assert(m_DeviceAddress != 0);
 }

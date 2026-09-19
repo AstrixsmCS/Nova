@@ -15,14 +15,6 @@
 #include <string>
 #include <vector>
 
-enum class ImageUsage : uint32_t
-{
-	None = 0,
-	Texture,
-	Storage,
-	Attachment
-};
-
 struct ImageSpecification
 {
 	std::string DebugName;
@@ -30,9 +22,9 @@ struct ImageSpecification
 	Format     Format = Format::RGBA8_UNorm;
 	ImageUsage Usage  = ImageUsage::Texture;
 
-	uint32_t Width  = 1;
-	uint32_t Height = 1;
-	uint32_t Mips   = 1;
+	Dimensions Size = {};
+
+	uint32_t Mips = 1;
 
 	bool Transfer = false; // Will it be used for transfer ops?
 };
@@ -125,10 +117,12 @@ public:
 
 	const ImageInfo& GetImageInfo() const { return m_Info; }
 
-	uint32_t   GetWidth()    const { return m_Specification.Width;  }
-	uint32_t   GetHeight()   const { return m_Specification.Height; }
+	uint32_t GetWidth() const { return m_Specification.Size.Width; }
+	uint32_t GetHeight() const { return m_Specification.Size.Height; }
+	uint32_t GetDepth() const { return m_Specification.Size.Depth; }
+	const Dimensions& GetDimensions() const { return m_Specification.Size; }
 	uint32_t   GetMipCount() const { return m_Specification.Mips;   }
-	Format   GetFormat()     const { return m_Specification.Format; }
+	Format     GetFormat()     const { return m_Specification.Format; }
 	ImageUsage GetUsage()    const { return m_Specification.Usage;  }
 
 	const ImageSpecification& GetSpecification() const { return m_Specification; }
@@ -161,7 +155,7 @@ public:
 
 	void Create(const ImageSpecification& specification);
 	void Destroy();
-	void Resize(uint32_t width, uint32_t height);
+	void Resize(const Dimensions& size);
 };
 
 struct ImageViewSpecification

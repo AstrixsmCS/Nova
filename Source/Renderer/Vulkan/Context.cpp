@@ -1,4 +1,4 @@
-#include "RendererContext.hpp"
+#include "Context.hpp"
 
 #include "Allocator.hpp"
 
@@ -20,7 +20,7 @@ static bool s_Validation = false;
 static bool s_Validation = true;
 #endif
 
-static RendererContext* s_Instance = nullptr;
+static Context* s_Instance = nullptr;
 
 // ==== Vulkan Debug Utilities ====
 
@@ -126,11 +126,11 @@ static bool CheckDriverAPIVersionSupport(uint32_t minimumSupportedVersion)
 
 // ==== Initialize / Shutdown ====
 
-void RendererContext::Initialize()
+void Context::Initialize()
 {
-	assert(!s_Instance && "RendererContext already initialized!");
+	assert(!s_Instance && "Context already initialized!");
 
-	s_Instance = new RendererContext();
+	s_Instance = new Context();
 
 	if (volkInitialize() != VK_SUCCESS)
 		throw std::runtime_error("Failed to initialize volk!");
@@ -149,7 +149,7 @@ void RendererContext::Initialize()
 	s_Instance->m_ImmediateCommandPool->Create(s_Instance->m_GraphicsFamily);
 }
 
-void RendererContext::Shutdown()
+void Context::Shutdown()
 {
 	if (!s_Instance)
 		return;
@@ -168,11 +168,9 @@ void RendererContext::Shutdown()
 
 		s_Instance->m_GraphicsQueue = VK_NULL_HANDLE;
 		s_Instance->m_ComputeQueue = VK_NULL_HANDLE;
-		s_Instance->m_TransferQueue = VK_NULL_HANDLE;
 
 		s_Instance->m_GraphicsFamily = UINT32_MAX;
 		s_Instance->m_ComputeFamily = UINT32_MAX;
-		s_Instance->m_TransferFamily = UINT32_MAX;
 	}
 
 	if (s_Instance->m_DebugMessenger)
@@ -195,7 +193,7 @@ void RendererContext::Shutdown()
 	s_Instance = nullptr;
 }
 
-RendererContext& RendererContext::Get()
+Context& Context::Get()
 {
 	assert(s_Instance && "RendererContext is not initialized!");
 	return *s_Instance;
@@ -203,7 +201,7 @@ RendererContext& RendererContext::Get()
 
 // ==== Instance ====
 
-void RendererContext::CreateInstance()
+void Context::CreateInstance()
 {
 	uint32_t sdlExtensionCount = 0;
 
@@ -291,7 +289,7 @@ void RendererContext::CreateInstance()
 
 // ==== Debug Messenger ====
 
-void RendererContext::SetupDebugMessenger()
+void Context::SetupDebugMessenger()
 {
 	if (!s_Validation)
 		return;
@@ -310,7 +308,7 @@ void RendererContext::SetupDebugMessenger()
 
 // ==== Physical Device ====
 
-void RendererContext::PickPhysicalDevice()
+void Context::PickPhysicalDevice()
 {
 	uint32_t gpuCount = 0;
 	vkEnumeratePhysicalDevices(m_VulkanInstance, &gpuCount, nullptr);
@@ -344,7 +342,7 @@ void RendererContext::PickPhysicalDevice()
 
 // ==== Logical Device ====
 
-void RendererContext::CreateLogicalDevice()
+void Context::CreateLogicalDevice()
 {
 	// === Queue Families ===
 	uint32_t queueFamilyCount = 0;
@@ -386,37 +384,6 @@ void RendererContext::CreateLogicalDevice()
 	if (m_ComputeFamily == UINT32_MAX)
 		m_ComputeFamily = m_GraphicsFamily;
 
-	// === Transfer Queue Family ===
-
-	// Prefer a dedicated transfer queue family.
-	for (uint32_t i = 0; i < queueFamilyCount; i++)
-	{
-		const VkQueueFlags flags = queueFamilies[i].queueFlags;
-
-		if ((flags & VK_QUEUE_TRANSFER_BIT) &&
-			!(flags & VK_QUEUE_GRAPHICS_BIT) &&
-			!(flags & VK_QUEUE_COMPUTE_BIT))
-		{
-			m_TransferFamily = i;
-			break;
-		}
-	}
-
-	// Prefer the compute family as the first fallback.
-	if (m_TransferFamily == UINT32_MAX &&
-		queueFamilies[m_ComputeFamily].queueFlags & VK_QUEUE_TRANSFER_BIT)
-	{
-		m_TransferFamily = m_ComputeFamily;
-	}
-
-	// Finally fall back to graphics.
-	if (m_TransferFamily == UINT32_MAX)
-	{
-		assert(queueFamilies[m_GraphicsFamily].queueFlags & VK_QUEUE_TRANSFER_BIT && "Could not find a transfer queue family!");
-		m_TransferFamily = m_GraphicsFamily;
-	}
-
-
 	// === Queue Creation ===
 
 	constexpr float queuePriority = 1.0f;
@@ -445,7 +412,6 @@ void RendererContext::CreateLogicalDevice()
 
 	addQueueFamily(m_GraphicsFamily);
 	addQueueFamily(m_ComputeFamily);
-	addQueueFamily(m_TransferFamily);
 
 	// === Supported Features ===
 
@@ -613,15 +579,12 @@ void RendererContext::CreateLogicalDevice()
 
 	vkGetDeviceQueue(m_LogicalDevice, m_GraphicsFamily, 0, &m_GraphicsQueue);
 	vkGetDeviceQueue(m_LogicalDevice, m_ComputeFamily, 0, &m_ComputeQueue);
-	vkGetDeviceQueue(m_LogicalDevice, m_TransferFamily, 0, &m_TransferQueue);
 
 	assert(m_GraphicsQueue && "Could not get graphics queue!");
 	assert(m_ComputeQueue && "Could not get compute queue!");
-	assert(m_TransferQueue && "Could not get transfer queue!");
 
 	std::println("[Renderer] Graphics queue family: {}", m_GraphicsFamily);
 	std::println("[Renderer] Compute queue family: {}", m_ComputeFamily);
-	std::println("[Renderer] Transfer queue family: {}", m_TransferFamily);
 
 	if (m_EnableDebugMarkers)
 		std::println("[Renderer] Debug markers enabled.");
@@ -629,7 +592,7 @@ void RendererContext::CreateLogicalDevice()
 
 // === Extensions ===
 
-bool RendererContext::IsExtensionSupported(const std::string& extensionName) const
+bool Context::IsExtensionSupported(const std::string& extensionName) const
 {
 	return m_SupportedExtensions.find(extensionName) != m_SupportedExtensions.end();
 }

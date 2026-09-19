@@ -1,9 +1,9 @@
 #include "ImGui.hpp"
 
-#include "CommandBuffer.hpp"
-#include "Descriptors.hpp"
-#include "Shader.hpp"
-#include "Texture.hpp"
+#include "Vulkan/CommandBuffer.hpp"
+#include "Vulkan/Descriptors.hpp"
+#include "Vulkan/Shader.hpp"
+#include "Vulkan/Texture.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_sdl3.h>
@@ -191,8 +191,11 @@ bool ImGuiLayer::UploadFontTexture()
 		.DebugName    = "ImGui Font Atlas",
 		.Format       = Format::RGBA8_UNorm,
 		.GenerateMips = false,
-		.Width        = static_cast<uint32_t>(width),
-		.Height       = static_cast<uint32_t>(height)
+		.Size =
+		{
+			.Width  = static_cast<uint32_t>(width),
+			.Height = static_cast<uint32_t>(height),
+		}
 	};
 
 	m_FontTexture = std::make_shared<Texture2D>();

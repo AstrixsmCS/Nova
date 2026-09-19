@@ -2,8 +2,6 @@
 
 #include "Core/UUID.hpp"
 
-#include "Renderer/Mesh.hpp"
-
 #include <string>
 
 #include <glm/glm.hpp>
@@ -55,10 +53,10 @@ struct TransformComponent
 
 struct MeshComponent
 {
-	std::shared_ptr<Mesh> MeshAsset;
+	/*std::shared_ptr<Mesh> MeshAsset;
 
 	MeshComponent() = default;
 	explicit MeshComponent(std::shared_ptr<Mesh> mesh) : MeshAsset(std::move(mesh)) {}
 
-	bool IsValid() const { return MeshAsset != nullptr && MeshAsset->IsValid(); }
+	bool IsValid() const { return MeshAsset != nullptr && MeshAsset->IsValid(); }*/
 };

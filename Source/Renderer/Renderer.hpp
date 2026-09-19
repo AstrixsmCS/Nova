@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Vulkan.hpp"
-#include "SwapChain.hpp"
-#include "TimelineSemaphore.hpp"
-#include "FrameData.hpp"
+#include "Vulkan/Vulkan.hpp"
+#include "Vulkan/SwapChain.hpp"
+#include "Vulkan/TimelineSemaphore.hpp"
+#include "Vulkan/FrameData.hpp"
 
 #include <array>
 #include <vector>
@@ -35,8 +35,6 @@ public:
 	static bool BeginFrame();
 	static void EndFrame();
 	static void Present();
-
-	static void ClearColor(float red, float green, float blue, float alpha = 1.0f);
 private:
 	static void CreateSyncObjects();
 	static void DestroySyncObjects();

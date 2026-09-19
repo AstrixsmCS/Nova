@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Material.hpp"
-#include "Buffer.hpp"
+#include "Vulkan/Buffer.hpp"
 #include "Renderer.hpp"
 
 #include <array>

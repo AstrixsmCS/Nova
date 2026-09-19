@@ -1,7 +1,6 @@
 #include "CommandBuffer.hpp"
 
-#include "Renderer.hpp"
-#include "RendererContext.hpp"
+#include "Context.hpp"
 
 #include <cassert>
 
@@ -14,7 +13,7 @@ void CommandPool::Create(uint32_t queueFamilyIndex)
 {
 	assert(m_Handle == VK_NULL_HANDLE);
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	VkCommandPoolCreateInfo poolInfo
 	{
@@ -31,7 +30,7 @@ void CommandPool::Destroy()
 	if (m_Handle == VK_NULL_HANDLE)
 		return;
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	vkDestroyCommandPool(device, m_Handle, nullptr);
 	m_Handle = VK_NULL_HANDLE;
@@ -41,7 +40,7 @@ void CommandPool::Reset()
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	VK_CHECK(vkResetCommandPool(device, m_Handle, 0));
 }
@@ -50,7 +49,7 @@ CommandBuffer CommandPool::AllocateCommandBuffer()
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	VkCommandBufferAllocateInfo allocInfo
 	{
@@ -94,7 +93,7 @@ void CommandBuffer::End()
 
 void CommandBuffer::Flush()
 {
-	Flush(RendererContext::Get().GetGraphicsQueue());
+	Flush(Context::Get().GetGraphicsQueue());
 }
 
 void CommandBuffer::Flush(VkQueue queue)
@@ -102,7 +101,7 @@ void CommandBuffer::Flush(VkQueue queue)
 	assert(m_Handle != VK_NULL_HANDLE);
 	assert(queue != VK_NULL_HANDLE);
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	End();
 

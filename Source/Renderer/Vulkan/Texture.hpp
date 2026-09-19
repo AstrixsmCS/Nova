@@ -11,12 +11,11 @@ struct TextureSpecification
 {
 	std::string DebugName;
 
-	Format     Format      = Format::RGBA8_UNorm;
-	ImageUsage Usage       = ImageUsage::Texture;
-	bool       GenerateMips = true;
+	Format Format = Format::RGBA8_UNorm;
+	ImageUsage Usage = ImageUsage::Texture;
+	bool GenerateMips = true;
 
-	uint32_t Width  = 1;
-	uint32_t Height = 1;
+	Dimensions Size = {};
 };
 
 class Texture2D : public Asset
@@ -31,6 +30,8 @@ public:
 	void Create(const TextureSpecification& specification);
 	void Create(const TextureSpecification& specification, const void* data);
 
+	bool Load(const std::filesystem::path& path, bool sRGB = true); // TODO: temp
+
 	void Destroy();
 
 	bool IsValid() const { return m_Image.IsValid(); }
@@ -40,6 +41,7 @@ public:
 
 	uint32_t GetWidth()    const { return m_Image.GetWidth();    }
 	uint32_t GetHeight()   const { return m_Image.GetHeight();   }
+	const Dimensions& GetDimensions() const { return m_Image.GetDimensions(); }
 	uint32_t GetMipCount() const { return m_Image.GetMipCount(); }
 	Format GetFormat()   const { return m_Image.GetFormat();   }
 
@@ -77,8 +79,9 @@ public:
 
 	bool IsValid() const { return m_Image != VK_NULL_HANDLE; }
 
-	uint32_t GetWidth()    const { return m_Specification.Width;  }
-	uint32_t GetHeight()   const { return m_Specification.Height; }
+	uint32_t GetWidth() const { return m_Specification.Size.Width; }
+	uint32_t GetHeight() const { return m_Specification.Size.Height; }
+	const Dimensions& GetDimensions() const { return m_Specification.Size; }
 	uint32_t GetMipCount() const { return m_MipCount;             }
 	Format GetFormat()   const { return m_Specification.Format; }
 

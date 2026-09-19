@@ -12,7 +12,7 @@ void MaterialSystem::Initialize()
 {
 	s_Slots.resize(MAX_MATERIALS);
 
-	// Reserve slot 0 as the fallback — populate free list from 1 onward
+	// Reserve slot 0 as the fallback - populate free list from 1 onward
 	s_FreeIndices.reserve(MAX_MATERIALS - 1);
 	for (uint32_t i = MAX_MATERIALS; i > 1; --i)
 		s_FreeIndices.push_back(i - 1);

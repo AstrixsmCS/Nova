@@ -1,14 +1,36 @@
 #include "EditorApplication.hpp"
 
-#include "Renderer/Descriptors.hpp"
-#include "Renderer/DynamicRendering.hpp"
 #include "Renderer/Renderer.hpp"
-
-#include "Core/Log.hpp"
+#include "Renderer/Vulkan/Descriptors.hpp"
+#include "Renderer/Vulkan/DynamicRendering.hpp"
+#include "Renderer/Vulkan/Vulkan.hpp"
 
 #include <glm/glm.hpp>
 
-#include <cassert>
+struct QuadVertex
+{
+	glm::vec2 Position;
+	glm::vec2 TexCoord;
+};
+
+static constexpr QuadVertex QuadVertices[4] =
+{
+	{ { -0.5f, -0.5f }, { 0.0f, 0.0f } },  // top-left
+	{ {  0.5f, -0.5f }, { 1.0f, 0.0f } },  // top-right
+	{ {  0.5f,  0.5f }, { 1.0f, 1.0f } },  // bottom-right
+	{ { -0.5f,  0.5f }, { 0.0f, 1.0f } },  // bottom-left
+};
+
+static constexpr uint32_t QuadIndices[6] =
+{
+	0, 1, 2,
+	2, 3, 0
+};
+
+struct QuadPushConstants
+{
+	uint32_t TextureIndex = 0;
+};
 
 EditorApplication::EditorApplication(const ApplicationSpecification& specification)
 	: Application(specification)
@@ -17,173 +39,103 @@ EditorApplication::EditorApplication(const ApplicationSpecification& specificati
 
 EditorApplication::~EditorApplication() = default;
 
-void EditorApplication::CreateDepthImage(uint32_t width, uint32_t height)
-{
-	m_DepthImage.Create(
-	{
-		.DebugName = "Depth",
-		.Format    = Format::D32_Float,
-		.Usage     = ImageUsage::Attachment,
-		.Width     = width,
-		.Height    = height,
-		.Mips      = 1,
-	});
-}
-
 void EditorApplication::OnInitialize()
 {
 	Descriptor::Initialize();
-	MaterialSystem::Initialize();
 
-	m_GeometryShader = std::make_shared<Shader>();
-	m_GeometryShader->Load("Assets/Shaders/Mesh.slang");
+	m_VertexBuffer.Create(QuadVertices, sizeof(QuadVertices), VertexBufferUsage::Static);
 
-	m_GeometryMaterial.SetShader(m_GeometryShader);
-
-	m_GeometryState.VertexLayout =
+	m_VertexBuffer.SetLayout(
 	{
-		{ ShaderDataType::Float3, "Position" },
-		{ ShaderDataType::Float3, "Normal"   },
+		{ ShaderDataType::Float2, "Position" },
 		{ ShaderDataType::Float2, "TexCoord" },
-		{ ShaderDataType::Float4, "Tangent"  },
-	};
-	m_GeometryState.CullMode     = CullMode::Back;
-	m_GeometryState.DepthTest    = true;
-	m_GeometryState.DepthWrite   = true;
-	m_GeometryState.DepthCompare = CompareOp::Less;
+	});
 
-	m_Mesh.Load("Assets/Meshes/Sponza/Sponza.gltf");
+	m_IndexBuffer.Create(QuadIndices, sizeof(QuadIndices));
 
-	for (const std::shared_ptr<Material>& material : m_Mesh.GetMaterials())
-		MaterialSystem::PrepareMaterial(material);
+	m_Shader = std::make_shared<Shader>();
+	m_Shader->Load("Assets/Shaders/TexturedQuad.slang");
+	assert(m_Shader->IsValid());
 
-	for (UniformBuffer& buffer : m_CameraBuffers)
-		buffer.Create(sizeof(CameraUniforms));
+	m_GraphicsState.VertexLayout   = m_VertexBuffer.GetLayout();
+	m_GraphicsState.DepthTest      = false;
+	m_GraphicsState.DepthWrite     = false;
+	m_GraphicsState.CullMode       = CullMode::None;
+	m_GraphicsState.PrimitiveTopology = Topology::Triangle;
 
-	const uint32_t width  = Renderer::GetSwapChain().GetWidth();
-	const uint32_t height = Renderer::GetSwapChain().GetHeight();
-	const float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+	m_Texture = std::make_shared<Texture2D>();
+	const bool loaded = m_Texture->Load("Assets/Textures/Test.png");
+	assert(loaded && m_Texture->IsValid());
 
-	m_Camera = Camera(glm::radians(60.0f), aspectRatio, 0.1f, 1000.0f);
-	m_Camera.SetPosition({ 0.0f, 0.0f, 3.0f });
-
-	CreateDepthImage(width, height);
-}
-
-void EditorApplication::DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh)
-{
-	const VkBuffer     vb     = mesh.GetVertexBuffer();
-	const VkDeviceSize offset = 0;
-	vkCmdBindVertexBuffers(commandBuffer.GetHandle(), 0, 1, &vb, &offset);
-	vkCmdBindIndexBuffer(commandBuffer.GetHandle(), mesh.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-	const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
-
-	const uint64_t cameraAddress   = m_CameraBuffers[frameIndex].GetDeviceAddress();
-	const uint64_t materialsAddress = MaterialSystem::GetBuffer(frameIndex).GetDeviceAddress();
-
-	const auto& shader = m_GeometryMaterial.GetShader();
-	const auto& ranges = shader->GetPushConstantRanges();
-	assert(!ranges.empty());
-	const auto& range = ranges[0];
-
-	const float     directionLengthSquared = glm::dot(m_DirectionalLight.Direction, m_DirectionalLight.Direction);
-	const glm::vec3 lightDirection         = directionLengthSquared > 0.000001f ? glm::normalize(m_DirectionalLight.Direction) : glm::vec3(0.0f, -1.0f, 0.0f);
-
-	m_GeometryMaterial.Set("UBCamera",            cameraAddress);
-	m_GeometryMaterial.Set("SBMaterials",         materialsAddress);
-	m_GeometryMaterial.Set("LightDirection",      glm::vec4(lightDirection, 0.0f));
-	m_GeometryMaterial.Set("LightColorIntensity", glm::vec4(m_DirectionalLight.Color, m_DirectionalLight.Intensity));
-
-	const auto& materials = mesh.GetMaterials();
-
-	for (const Submesh& submesh : mesh.GetSubmeshes())
+	const VkExtent2D extent = Renderer::GetSwapChain().GetExtent();
+	CreateDepthImage(
 	{
-		const std::shared_ptr<Material>& material = (submesh.MaterialIndex != UINT32_MAX && submesh.MaterialIndex < materials.size()) ? materials[submesh.MaterialIndex] : nullptr;
-
-		const uint32_t materialIndex = MaterialSystem::PrepareMaterial(material);
-
-		m_GeometryMaterial.Set("Model",         submesh.Transform);
-		m_GeometryMaterial.Set("MaterialIndex", materialIndex);
-
-		const auto& storage = m_GeometryMaterial.GetUniformStorage();
-		assert(storage.size() == range.Size);
-
-		vkCmdPushConstants(commandBuffer.GetHandle(), shader->GetPipelineLayout(), range.StageFlags, range.Offset, static_cast<uint32_t>(storage.size()), storage.data());
-
-		vkCmdDrawIndexed(commandBuffer.GetHandle(), submesh.IndexCount, 1, submesh.BaseIndex, static_cast<int32_t>(submesh.BaseVertex), 0);
-	}
+		.Width  = extent.width,
+		.Height = extent.height,
+	});
 }
 
-void EditorApplication::OnUpdate(Timestep ts)
+void EditorApplication::CreateDepthImage(const Dimensions& size)
 {
-	m_Camera.OnUpdate(ts);
+	m_DepthImage.Destroy();
+	m_DepthImage.Create(
+	{
+		.Format = Format::D32_Float,
+		.Usage  = ImageUsage::Attachment,
+		.Size   = size
+	});
+}
 
-	const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
-
-	MaterialSystem::UploadPendingMaterials(frameIndex);
-
+void EditorApplication::OnUpdate(Timestep /*ts*/)
+{
 	CommandBuffer& cmd  = Renderer::GetCurrentCommandBuffer();
 	SwapChain&     swap = Renderer::GetSwapChain();
 
+	const VkExtent2D extent = swap.GetExtent();
+
+	if (m_DepthImage.GetWidth() != extent.width || m_DepthImage.GetHeight() != extent.height)
 	{
-		const uint32_t width  = swap.GetWidth();
-		const uint32_t height = swap.GetHeight();
+		Renderer::WaitForGPU();
 
-		if (m_DepthImage.GetWidth()  != width || m_DepthImage.GetHeight() != height)
+		CreateDepthImage(
 		{
-			Renderer::WaitForGPU();
-			CreateDepthImage(width, height);
-
-			const float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
-			m_Camera.SetPerspective(glm::radians(60.0f), aspectRatio, 0.1f, 1000.0f);
-		}
-	}
-
-	{
-		const glm::mat4 vp    = m_Camera.GetViewProjection();
-		const glm::mat4 invVP = glm::inverse(vp);
-
-		const CameraUniforms uniforms
-		{
-			.ViewProjection        = vp,
-			.InverseViewProjection = invVP,
-			.Position              = m_Camera.GetPosition(),
-		};
-
-		m_CameraBuffers[frameIndex].SetData(&uniforms, sizeof(CameraUniforms));
+			.Width  = extent.width,
+			.Height = extent.height,
+		});
 	}
 
 	// ==== Barriers: undefined → attachments ====
 
-	SetImageLayout(cmd.GetHandle(),
+	SetImageLayout(
+		cmd.GetHandle(),
 		swap.GetCurrentImage(),
 		VK_IMAGE_ASPECT_COLOR_BIT,
 		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+	);
 
-	SetImageLayout(cmd.GetHandle(),
+	SetImageLayout(
+		cmd.GetHandle(),
 		m_DepthImage.GetHandle(),
 		VK_IMAGE_ASPECT_DEPTH_BIT,
 		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+	);
 
-	// ==== Geometry pass ====
+	// ==== Pass ====
 
 	const AttachmentInfo color
 	{
 		.ImageView  = swap.GetCurrentImageView(),
-		.Format     = swap.GetColorFormat(),
 		.LoadOp     = LoadOp::Clear,
 		.StoreOp    = StoreOp::Store,
-		.ClearValue = { .color = { .float32 = { 0.03f, 0.02f, 0.08f, 1.0f } } },
+		.ClearValue = { .color = { .float32 = { 0.1f, 0.1f, 0.1f, 1.0f } } },
 		.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 	};
 
 	const AttachmentInfo depth
 	{
 		.ImageView  = m_DepthImage.GetAttachmentView(),
-		.Format     = Format::D32_Float,
 		.LoadOp     = LoadOp::Clear,
 		.StoreOp    = StoreOp::DontCare,
 		.ClearValue = { .depthStencil = { 1.0f, 0 } },
@@ -194,43 +146,63 @@ void EditorApplication::OnUpdate(Timestep ts)
 	{
 		.ColorAttachments = { &color, 1 },
 		.DepthAttachment  = &depth,
-		.RenderArea       = { {0, 0}, swap.GetExtent() },
+		.RenderArea =
+		{
+			.X      = 0,
+			.Y      = 0,
+			.Width  = extent.width,
+			.Height = extent.height
+		},
 	};
 
 	DynamicRendering::BeginRendering(cmd, passInfo);
 
-	m_GeometryShader->Bind(cmd);
-	m_GeometryState.Apply(cmd, 1);
+	m_Shader->Bind(cmd);
+	m_GraphicsState.Apply(cmd, 1);
 
 	const VkDescriptorSet descriptorSet = Descriptor::GetSet();
-	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_GeometryShader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_Shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
-	DrawMesh(cmd, m_Mesh);
+	const VkBuffer     vb     = m_VertexBuffer.GetBuffer();
+	const VkDeviceSize offset = 0;
+	vkCmdBindVertexBuffers(cmd.GetHandle(), 0, 1, &vb, &offset);
+	vkCmdBindIndexBuffer(cmd.GetHandle(), m_IndexBuffer.GetBuffer(), 0, ToVulkan(IndexFormat::UInt32));
+
+	const QuadPushConstants push
+	{
+		.TextureIndex = m_Texture->GetBindlessIndex(),
+	};
+
+	const auto& ranges = m_Shader->GetPushConstantRanges();
+	assert(!ranges.empty());
+
+	vkCmdPushConstants(cmd.GetHandle(), m_Shader->GetPipelineLayout(), ranges[0].StageFlags, ranges[0].Offset, sizeof(QuadPushConstants), &push);
+
+	vkCmdDrawIndexed(cmd.GetHandle(), m_IndexBuffer.GetCount(), 1, 0, 0, 0);
 
 	DynamicRendering::EndRendering(cmd);
 
 	// ==== Barrier: color attachment → present ====
 
-	SetImageLayout(cmd.GetHandle(),
+	SetImageLayout(
+		cmd.GetHandle(),
 		swap.GetCurrentImage(),
 		VK_IMAGE_ASPECT_COLOR_BIT,
 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+	);
 }
 
 void EditorApplication::OnShutdown()
 {
 	Renderer::WaitForGPU();
 
-	for (UniformBuffer& buffer : m_CameraBuffers)
-		buffer.Destroy();
-
-	MaterialSystem::Clear();
-	MaterialSystem::Shutdown();
+	m_Texture.reset();
+	m_Shader->Shutdown();
 
 	m_DepthImage.Destroy();
-	m_Mesh.Destroy();
-	m_GeometryShader->Shutdown();
+	m_IndexBuffer.Destroy();
+	m_VertexBuffer.Destroy();
 
 	Descriptor::Shutdown();
 }

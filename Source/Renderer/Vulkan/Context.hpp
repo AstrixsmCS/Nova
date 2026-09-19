@@ -8,12 +8,12 @@
 
 struct SDL_Window;
 
-class RendererContext
+class Context
 {
 public:
 	static void Initialize();
 	static void Shutdown();
-	static RendererContext& Get();
+	static Context& Get();
 
 	VkInstance GetInstance() const { return m_VulkanInstance; }
 	VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
@@ -23,8 +23,6 @@ public:
 	uint32_t GetGraphicsFamily() const { return m_GraphicsFamily; }
 	VkQueue GetComputeQueue() const { return m_ComputeQueue; }
 	uint32_t GetComputeFamily() const { return m_ComputeFamily; }
-	VkQueue GetTransferQueue() const { return m_TransferQueue; }
-	uint32_t GetTransferFamily() const { return m_TransferFamily; }
 
 	CommandPool& GetImmediateCommandPool() { return *m_ImmediateCommandPool; }
 	const CommandPool& GetImmediateCommandPool() const { return *m_ImmediateCommandPool; }
@@ -52,8 +50,6 @@ private:
 	uint32_t m_GraphicsFamily = UINT32_MAX;
 	VkQueue m_ComputeQueue = VK_NULL_HANDLE;
 	uint32_t m_ComputeFamily = UINT32_MAX;
-	VkQueue m_TransferQueue = VK_NULL_HANDLE;
-	uint32_t m_TransferFamily = UINT32_MAX;
 
 	std::unique_ptr<CommandPool> m_ImmediateCommandPool = nullptr;
 

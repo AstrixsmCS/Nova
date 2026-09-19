@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Asset/AssetImporter.hpp"
-#include "Renderer/RendererTypes.hpp"
 
 #include <nlohmann/json.hpp>
 #include <cstdint>
@@ -31,7 +30,7 @@ struct TextureAssetData : public AssetData
 	uint32_t Height    = 0;
 	uint32_t MipLevels = 1;
 
-	Format Format = Format::Invalid;
+	// Format Format = Format::Invalid;
 };
 
 

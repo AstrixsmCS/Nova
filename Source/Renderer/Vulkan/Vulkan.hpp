@@ -1,7 +1,5 @@
 #pragma once
 
-#include "RendererTypes.hpp"
-
 #include <volk/volk.h>
 
 #include <cassert>
@@ -191,36 +189,10 @@ inline static void SetDebugUtilsObjectName(const VkDevice device, const VkObject
 	VK_CHECK(vkSetDebugUtilsObjectNameEXT(device, &nameInfo));
 }
 
-VkPipelineBindPoint ToVulkan(PipelineBindPoint bindPoint);
+// ==== Image barriers ====
 
-VkAttachmentLoadOp ToVulkan(LoadOp op);
-VkAttachmentStoreOp ToVulkan(StoreOp op);
-
-VkFormat ToVulkan(Format format);
-
-VkPolygonMode ToVulkan(PolygonMode mode);
-VkCompareOp ToVulkan(CompareOp op);
-VkStencilOp ToVulkan(StencilOp op);
-
-VkBlendOp ToVulkan(BlendOp op);
-VkBlendFactor ToVulkan(BlendFactor factor);
-
-VkCullModeFlags ToVulkan(CullMode mode);
-VkFrontFace ToVulkan(WindingMode mode);
-
-VkImageType ToVulkan(TextureType type);
-VkImageViewType ToVulkanImageViewType(TextureType type);
-
-VkFilter ToVulkan(SamplerFilter filter);
-VkSamplerMipmapMode ToVulkan(SamplerMip mip);
-VkSamplerAddressMode ToVulkan(SamplerWrap wrap);
-
-VkPrimitiveTopology ToVulkan(Topology topology);
-
-VkColorSpaceKHR ToVulkan(ColorSpace colorSpace);
-
-void InsertImageMemoryBarrier(
-	VkCommandBuffer cmdbuffer,
+inline void InsertImageMemoryBarrier(
+	VkCommandBuffer commandBuffer,
 	VkImage image,
 	VkAccessFlags2 srcAccessMask,
 	VkAccessFlags2 dstAccessMask,
@@ -228,22 +200,205 @@ void InsertImageMemoryBarrier(
 	VkImageLayout newImageLayout,
 	VkPipelineStageFlags2 srcStageMask,
 	VkPipelineStageFlags2 dstStageMask,
-	VkImageSubresourceRange subresourceRange);
+	VkImageSubresourceRange subresourceRange)
+{
+	const VkImageMemoryBarrier2 imageMemoryBarrier
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 
-void SetImageLayout(
-	VkCommandBuffer cmdbuffer,
+		.srcStageMask  = srcStageMask,
+		.srcAccessMask = srcAccessMask,
+
+		.dstStageMask  = dstStageMask,
+		.dstAccessMask = dstAccessMask,
+
+		.oldLayout = oldImageLayout,
+		.newLayout = newImageLayout,
+
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+
+		.image = image,
+
+		.subresourceRange = subresourceRange
+	};
+
+	const VkDependencyInfo dependencyInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+
+		.imageMemoryBarrierCount = 1,
+		.pImageMemoryBarriers    = &imageMemoryBarrier
+	};
+
+	vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+}
+
+inline void SetImageLayout(
+	VkCommandBuffer commandBuffer,
 	VkImage image,
 	VkImageLayout oldImageLayout,
 	VkImageLayout newImageLayout,
 	VkImageSubresourceRange subresourceRange,
 	VkPipelineStageFlags2 srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-	VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+	VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+{
+	VkAccessFlags2 srcAccessMask = 0;
+	VkAccessFlags2 dstAccessMask = 0;
 
-void SetImageLayout(
-	VkCommandBuffer cmdbuffer,
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Source Layout
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	switch (oldImageLayout)
+	{
+		case VK_IMAGE_LAYOUT_UNDEFINED:
+		{
+			srcAccessMask = 0;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_PREINITIALIZED:
+		{
+			srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+		{
+			srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+		{
+			srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+		{
+			srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+		{
+			srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+		{
+			srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+		{
+			srcAccessMask = 0;
+			break;
+		}
+
+		default:
+		{
+			break;
+		}
+	}
+
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Destination Layout
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	switch (newImageLayout)
+	{
+		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+		{
+			dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+		{
+			dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+		{
+			dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+		{
+			dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+		{
+			if (srcAccessMask == 0)
+			{
+				srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			}
+
+			dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+			break;
+		}
+
+		case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+		{
+			dstAccessMask = 0;
+			break;
+		}
+
+		default:
+		{
+			break;
+		}
+	}
+
+	InsertImageMemoryBarrier(
+		commandBuffer,
+		image,
+		srcAccessMask,
+		dstAccessMask,
+		oldImageLayout,
+		newImageLayout,
+		srcStageMask,
+		dstStageMask,
+		subresourceRange
+	);
+}
+
+inline void SetImageLayout(
+	VkCommandBuffer commandBuffer,
 	VkImage image,
 	VkImageAspectFlags aspectMask,
 	VkImageLayout oldImageLayout,
 	VkImageLayout newImageLayout,
 	VkPipelineStageFlags2 srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-	VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+	VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+{
+	const VkImageSubresourceRange subresourceRange
+	{
+		.aspectMask     = aspectMask,
+		.baseMipLevel   = 0,
+		.levelCount     = 1,
+		.baseArrayLayer = 0,
+		.layerCount     = 1
+	};
+
+	SetImageLayout(
+		commandBuffer,
+		image,
+		oldImageLayout,
+		newImageLayout,
+		subresourceRange,
+		srcStageMask,
+		dstStageMask
+	);
+}

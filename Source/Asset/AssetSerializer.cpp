@@ -3,8 +3,6 @@
 #include "Importers/ShaderImporter.hpp"
 #include "Importers/TextureImporter.hpp"
 
-#include "Renderer/Image.hpp"
-
 #include <fstream>
 #include <utility>
 
@@ -59,7 +57,7 @@ bool AssetSerializer::SerializeTexture(const std::filesystem::path& path, const 
 	{
 		.Width          = data.Width,
 		.Height         = data.Height,
-		.Format         = static_cast<uint32_t>(data.Format),
+		// .Format         = static_cast<uint32_t>(data.Format),
 		.SizeBytes      = static_cast<uint32_t>(data.Pixels.size()),
 		.GenerateMipmaps = data.MipLevels > 1 ? 1u : 0u,
 		.MipLevels      = data.MipLevels
@@ -74,7 +72,7 @@ bool AssetSerializer::SerializeTexture(const std::filesystem::path& path, const 
 
 bool AssetSerializer::DeserializeTexture(const std::filesystem::path& path, TextureAssetData& outData)
 {
-	std::ifstream stream(path, std::ios::binary | std::ios::ate);
+	/*std::ifstream stream(path, std::ios::binary | std::ios::ate);
 	if (!stream)
 		return false;
 
@@ -130,5 +128,7 @@ bool AssetSerializer::DeserializeTexture(const std::filesystem::path& path, Text
 	outData.Pixels.resize(textureHeader.SizeBytes);
 	stream.read(reinterpret_cast<char*>(outData.Pixels.data()), textureHeader.SizeBytes);
 
-	return static_cast<bool>(stream);
+	return static_cast<bool>(stream);*/
+
+	return false;
 }

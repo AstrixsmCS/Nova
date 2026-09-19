@@ -1,8 +1,10 @@
 #include "Shader.hpp"
 
+#include "VulkanUtils.hpp"
+
 #include "CommandBuffer.hpp"
 #include "Descriptors.hpp"
-#include "RendererContext.hpp"
+#include "Context.hpp"
 #include "ShaderCompiler.hpp"
 
 #include <algorithm>
@@ -136,7 +138,7 @@ void Shader::Bind(CommandBuffer& commandBuffer) const
 
 void Shader::CreatePipelineLayout()
 {
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	const std::vector<VkPushConstantRange> pushConstantRanges = CreatePushConstantRanges(m_ReflectionData);
 
@@ -162,7 +164,7 @@ void Shader::CreatePipelineLayout()
 
 void Shader::CreateShaderObjects()
 {
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	const VkDescriptorSetLayout descriptorSetLayout = Descriptor::GetLayout();
 
@@ -184,9 +186,9 @@ void Shader::CreateShaderObjects()
 		// Ray-tracing stages still require a ray-tracing pipeline and SBT.
 		assert(SupportsShaderObjects(stage));
 
-		const VkShaderStageFlagBits stageBit = ToVulkanStage(stage);
+		const VkShaderStageFlagBits stageBit = static_cast<VkShaderStageFlagBits>(ToVulkan(stage));
 
-		assert(stageBit != VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM);
+		assert(stageBit != 0);
 
 		m_ShaderStageBits[i] = stageBit;
 		const VkShaderCreateFlagsEXT shaderFlags = linkStages ? VK_SHADER_CREATE_LINK_STAGE_BIT_EXT : VkShaderCreateFlagsEXT{ 0 };
@@ -224,7 +226,7 @@ void Shader::CreateShaderObjects()
 
 void Shader::Destroy()
 {
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	for (VkShaderEXT shader : m_ShaderObjects)
 	{
@@ -241,23 +243,4 @@ void Shader::Destroy()
 
 		m_PipelineLayout = VK_NULL_HANDLE;
 	}
-}
-
-VkShaderStageFlagBits Shader::ToVulkanStage(ShaderStage stage)
-{
-	switch (stage)
-	{
-		case ShaderStage::Vertex:       return VK_SHADER_STAGE_VERTEX_BIT;
-		case ShaderStage::Fragment:     return VK_SHADER_STAGE_FRAGMENT_BIT;
-		case ShaderStage::Compute:      return VK_SHADER_STAGE_COMPUTE_BIT;
-		case ShaderStage::RayGen:       return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-		case ShaderStage::Miss:         return VK_SHADER_STAGE_MISS_BIT_KHR;
-		case ShaderStage::ClosestHit:   return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-		case ShaderStage::AnyHit:       return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
-		case ShaderStage::Intersection: return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
-		case ShaderStage::Callable:     return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
-		case ShaderStage::None:         break;
-	}
-
-	return VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM;
 }

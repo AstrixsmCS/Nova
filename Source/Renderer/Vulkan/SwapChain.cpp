@@ -1,6 +1,8 @@
 #include "SwapChain.hpp"
 
-#include "RendererContext.hpp"
+#include "VulkanUtils.hpp"
+
+#include "Context.hpp"
 
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_events.h>
@@ -19,7 +21,7 @@ SwapChain::SwapChain(SDL_Window* windowHandle)
 SwapChain::~SwapChain()
 {
 	Cleanup();
-	vkDestroySurfaceKHR(RendererContext::Get().GetInstance(), m_Surface, nullptr);
+	vkDestroySurfaceKHR(Context::Get().GetInstance(), m_Surface, nullptr);
 }
 
 void SwapChain::Initialize()
@@ -49,7 +51,7 @@ void SwapChain::Initialize()
 
 void SwapChain::Cleanup()
 {
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	for (auto& image : m_Images)
 	{
@@ -73,13 +75,13 @@ void SwapChain::OnResize(uint32_t width, uint32_t height)
 	if (width == 0 || height == 0)
 		return;
 
-	vkDeviceWaitIdle(RendererContext::Get().GetDevice());
+	vkDeviceWaitIdle(Context::Get().GetDevice());
 
 	// Destroy image views but keep the swapchain handle alive
 	// so it can be passed as oldSwapchain
 	for (auto& image : m_Images)
 	{
-		vkDestroyImageView(RendererContext::Get().GetDevice(), image.ImageView, nullptr);
+		vkDestroyImageView(Context::Get().GetDevice(), image.ImageView, nullptr);
 		image.ImageView = VK_NULL_HANDLE;
 	}
 	m_Images.clear();
@@ -91,20 +93,20 @@ void SwapChain::OnResize(uint32_t width, uint32_t height)
 	CreateImageViews();
 
 	if (oldSwapchain != VK_NULL_HANDLE)
-		vkDestroySwapchainKHR(RendererContext::Get().GetDevice(), oldSwapchain, nullptr);
+		vkDestroySwapchainKHR(Context::Get().GetDevice(), oldSwapchain, nullptr);
 
 	m_NeedsResize = false;
 }
 
 void SwapChain::CreateSurface()
 {
-	VkPhysicalDevice physicalDevice = RendererContext::Get().GetPhysicalDevice();
+	VkPhysicalDevice physicalDevice = Context::Get().GetPhysicalDevice();
 
-	SDL_Vulkan_CreateSurface(m_WindowHandle, RendererContext::Get().GetInstance(), nullptr, &m_Surface);
+	SDL_Vulkan_CreateSurface(m_WindowHandle, Context::Get().GetInstance(), nullptr, &m_Surface);
 
 	VkBool32 presentSupport = VK_FALSE;
 
-	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, static_cast<uint32_t>(RendererContext::Get().GetGraphicsFamily()), m_Surface, &presentSupport));
+	VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, static_cast<uint32_t>(Context::Get().GetGraphicsFamily()), m_Surface, &presentSupport));
 
 	assert(presentSupport && "Graphics queue family does not support presentation on this surface!");
 
@@ -113,8 +115,8 @@ void SwapChain::CreateSurface()
 
 void SwapChain::CreateSwapchain(uint32_t* width, uint32_t* height, VkSwapchainKHR oldSwapchain)
 {
-	VkPhysicalDevice physicalDevice = RendererContext::Get().GetPhysicalDevice();
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkPhysicalDevice physicalDevice = Context::Get().GetPhysicalDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	VkSurfaceCapabilitiesKHR capabilities{};
 	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, m_Surface, &capabilities));
@@ -126,18 +128,14 @@ void SwapChain::CreateSwapchain(uint32_t* width, uint32_t* height, VkSwapchainKH
 	std::vector<VkPresentModeKHR> presentModes(presentModeCount);
 	VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, m_Surface, &presentModeCount, presentModes.data()));
 
-	// FIFO is always supported.
-	VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+	PresentMode preferredPresentMode = PresentMode::Mailbox;
 
-	// Prefer mailbox when available.
-	for (VkPresentModeKHR availablePresentMode : presentModes)
-	{
-		if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
-		{
-			presentMode = availablePresentMode;
-			break;
-		}
-	}
+	VkPresentModeKHR presentMode = ToVulkan(PresentMode::FIFO);
+
+	const VkPresentModeKHR preferred = ToVulkan(preferredPresentMode);
+
+	if (std::ranges::find(presentModes, preferred) != presentModes.end())
+		presentMode = preferred;
 
 	// === Extent ===
 
@@ -232,7 +230,7 @@ void SwapChain::CreateSwapchain(uint32_t* width, uint32_t* height, VkSwapchainKH
 
 void SwapChain::CreateImageViews()
 {
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	for (auto& image : m_Images)
 	{
@@ -283,7 +281,7 @@ uint32_t SwapChain::AcquireNextImage(VkSemaphore signalSemaphore)
 		return UINT32_MAX;
 	}
 
-	VkResult result = vkAcquireNextImageKHR(RendererContext::Get().GetDevice(), m_SwapChain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &m_CurrentImageIndex);
+	VkResult result = vkAcquireNextImageKHR(Context::Get().GetDevice(), m_SwapChain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &m_CurrentImageIndex);
 
 	if (result == VK_ERROR_OUT_OF_DATE_KHR)
 	{
@@ -321,7 +319,7 @@ void SwapChain::Present(VkSemaphore waitSemaphore)
 		.pImageIndices = &m_CurrentImageIndex
 	};
 
-	VkResult result = vkQueuePresentKHR(RendererContext::Get().GetGraphicsQueue(), &presentInfo);
+	VkResult result = vkQueuePresentKHR(Context::Get().GetGraphicsQueue(), &presentInfo);
 
 	// Defer recreation until AcquireNextImage().
 	if (result == VK_ERROR_OUT_OF_DATE_KHR)
@@ -336,7 +334,7 @@ void SwapChain::Present(VkSemaphore waitSemaphore)
 
 void SwapChain::FindImageFormatAndColorSpace()
 {
-	const VkPhysicalDevice physicalDevice = RendererContext::Get().GetPhysicalDevice();
+	const VkPhysicalDevice physicalDevice = Context::Get().GetPhysicalDevice();
 
 	uint32_t formatCount = 0;
 	VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, m_Surface, &formatCount, nullptr));

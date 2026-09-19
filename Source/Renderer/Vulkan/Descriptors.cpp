@@ -1,12 +1,12 @@
 #include "Descriptors.hpp"
 
-#include "RendererContext.hpp"
+#include "Context.hpp"
 
 #include <cassert>
 
 void Descriptor::Initialize()
 {
-	const VkDevice device = RendererContext::Get().GetDevice();
+	const VkDevice device = Context::Get().GetDevice();
 
 	VkDescriptorSetLayoutBinding bindings[3]
 	{
@@ -109,7 +109,7 @@ void Descriptor::Initialize()
 
 void Descriptor::Shutdown()
 {
-	const VkDevice device = RendererContext::Get().GetDevice();
+	const VkDevice device = Context::Get().GetDevice();
 
 	for (VkSampler& sampler : s_DefaultSamplers)
 	{
@@ -140,9 +140,9 @@ void Descriptor::Shutdown()
 
 void Descriptor::CreateDefaultSamplers()
 {
-	const VkDevice device = RendererContext::Get().GetDevice();
+	const VkDevice device = Context::Get().GetDevice();
 
-	const VkPhysicalDeviceProperties& properties = RendererContext::Get().GetPhysicalDeviceProperties();
+	const VkPhysicalDeviceProperties& properties = Context::Get().GetPhysicalDeviceProperties();
 
 	auto CreateSampler = [&](VkFilter filter, VkSamplerMipmapMode mipMode, VkSamplerAddressMode addressMode, bool anisotropy, bool compare) -> VkSampler
 	{
@@ -213,7 +213,7 @@ void Descriptor::WriteSampler(uint32_t index, VkSampler sampler)
 		.pImageInfo = &imageInfo
 	};
 
-	vkUpdateDescriptorSets(RendererContext::Get().GetDevice(), 1, &write, 0, nullptr);
+	vkUpdateDescriptorSets(Context::Get().GetDevice(), 1, &write, 0, nullptr);
 }
 
 uint32_t Descriptor::RegisterTexture(VkImageView imageView, VkImageLayout layout)
@@ -243,7 +243,7 @@ uint32_t Descriptor::RegisterTexture(VkImageView imageView, VkImageLayout layout
 		.pImageInfo = &imageInfo
 	};
 
-	vkUpdateDescriptorSets(RendererContext::Get().GetDevice(), 1, &write, 0, nullptr);
+	vkUpdateDescriptorSets(Context::Get().GetDevice(), 1, &write, 0, nullptr);
 
 	return index;
 }
@@ -275,7 +275,7 @@ uint32_t Descriptor::RegisterStorageImage(VkImageView imageView)
 		.pImageInfo = &imageInfo
 	};
 
-	vkUpdateDescriptorSets(RendererContext::Get().GetDevice(), 1, &write, 0, nullptr);
+	vkUpdateDescriptorSets(Context::Get().GetDevice(), 1, &write, 0, nullptr);
 
 	return index;
 }

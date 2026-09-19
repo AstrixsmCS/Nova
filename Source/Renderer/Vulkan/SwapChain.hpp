@@ -2,6 +2,8 @@
 
 #include "Vulkan.hpp"
 
+#include "Renderer/RendererTypes.hpp"
+
 #include <cstdint>
 #include <vector>
 

@@ -1,6 +1,6 @@
 #include "Allocator.hpp"
 
-#include "RendererContext.hpp"
+#include "Context.hpp"
 
 #include "Vulkan.hpp"
 
@@ -10,7 +10,7 @@ VmaAllocator Allocator::s_VmaAllocator = VK_NULL_HANDLE;
 
 void Allocator::Initialize()
 {
-	auto& context = RendererContext::Get();
+	auto& context = Context::Get();
 
 	VmaVulkanFunctions vmaFuncInfo{};
 	VmaAllocatorCreateInfo vmaAllocInfo

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Shader.hpp"
-#include "Texture.hpp"
+#include "Vulkan/Shader.hpp"
+#include "Vulkan/Texture.hpp"
 
 #include <glm/glm.hpp>
 
@@ -99,27 +99,53 @@ public:
 	bool IsMapEnabled(MapType type) const;
 
 	// Render mode
-	MaterialRenderMode GetRenderMode() const              { return m_RenderMode; }
-	void               SetRenderMode(MaterialRenderMode mode) { m_RenderMode = mode; MarkDirty(); }
+	MaterialRenderMode GetRenderMode() const { return m_RenderMode; }
 
-	bool IsTransparent()    const { return m_RenderMode == MaterialRenderMode::Transparent || m_RenderMode == MaterialRenderMode::Fade; }
+	void SetRenderMode(MaterialRenderMode mode)
+	{
+		m_RenderMode = mode;
+
+		switch (mode)
+		{
+			case MaterialRenderMode::Opaque:
+			case MaterialRenderMode::Cutout:
+				m_BlendMode = BlendMode::None;
+				break;
+
+			case MaterialRenderMode::Transparent:
+			case MaterialRenderMode::Fade:
+				m_BlendMode = BlendMode::Alpha;
+				break;
+		}
+
+		MarkDirty();
+	}
+
+	bool IsTransparent()   const { return m_RenderMode == MaterialRenderMode::Transparent || m_RenderMode == MaterialRenderMode::Fade; }
 	bool IsTransmissive()   const { return m_GPUData.Transmission > 0.0f; }
 	bool NeedsForwardPass() const { return IsTransparent() || IsTransmissive(); }
 
-	// Alpha cutoff — used when RenderMode == Cutout
+	// Blending
+	BlendMode GetBlendMode() const { return m_BlendMode; }
+
+	void SetBlendMode(BlendMode mode)
+	{
+		m_BlendMode = mode;
+		MarkDirty();
+	}
+
+	// Face culling
+	CullMode GetCullMode() const { return m_CullMode; }
+
+	void SetCullMode(CullMode mode)
+	{
+		m_CullMode = mode;
+		MarkDirty();
+	}
+
+	// Alpha cutoff - used when RenderMode == Cutout
 	float GetAlphaCutoff() const          { return m_GPUData.AlphaCutoff; }
 	void  SetAlphaCutoff(float cutoff)    { m_GPUData.AlphaCutoff = cutoff; MarkDirty(); }
-
-	// Blend factors — stored for future pipeline construction
-	BlendFactor GetBlendSrc() const              { return m_BlendSrc; }
-	BlendFactor GetBlendDst() const              { return m_BlendDst; }
-	void        SetBlendSrc(BlendFactor factor)  { m_BlendSrc = factor; }
-	void        SetBlendDst(BlendFactor factor)  { m_BlendDst = factor; }
-
-
-	// Face culling — stored for future pipeline construction
-	CullMode GetCullMode() const        { return m_CullMode; }
-	void     SetCullMode(CullMode mode) { m_CullMode = mode; }
 
 	// PBR factors
 	glm::vec4 GetColor()    const { return m_GPUData.Albedo; }
@@ -158,9 +184,10 @@ private:
 	GPUMaterialData m_GPUData;
 
 	MaterialRenderMode m_RenderMode = MaterialRenderMode::Opaque;
-	BlendFactor        m_BlendSrc   = BlendFactor::SrcAlpha;
-	BlendFactor        m_BlendDst   = BlendFactor::OneMinusSrcAlpha;
-	CullMode           m_CullMode   = CullMode::Back;
+
+	// Graphics state applied by the renderer when drawing.
+	BlendMode m_BlendMode = BlendMode::None;
+	CullMode  m_CullMode  = CullMode::Back;
 
 	uint64_t m_Revision = 1;
 };

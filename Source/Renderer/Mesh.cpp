@@ -1,7 +1,5 @@
 #include "Mesh.hpp"
 
-#include "Allocator.hpp"
-
 #include <fastgltf/core.hpp>
 #include <fastgltf/types.hpp>
 #include <fastgltf/tools.hpp>
@@ -285,8 +283,11 @@ bool Mesh::Load(const std::filesystem::path& path)
 					spec.DebugName    = gltfImage.name.empty() ? texturePath.filename().string() : std::string(gltfImage.name);
 					spec.Format       = format;
 					spec.GenerateMips = true;
-					spec.Width        = static_cast<uint32_t>(width);
-					spec.Height       = static_cast<uint32_t>(height);
+					spec.Size =
+					{
+						.Width  = static_cast<uint32_t>(width),
+						.Height = static_cast<uint32_t>(height),
+					};
 
 					texture->Create(spec, pixels);
 					stbi_image_free(pixels);
@@ -311,8 +312,11 @@ bool Mesh::Load(const std::filesystem::path& path)
 					spec.DebugName    = gltfImage.name.empty() ? std::string(m_Name) : std::string(gltfImage.name);
 					spec.Format       = format;
 					spec.GenerateMips = true;
-					spec.Width        = static_cast<uint32_t>(width);
-					spec.Height       = static_cast<uint32_t>(height);
+					spec.Size =
+					{
+						.Width  = static_cast<uint32_t>(width),
+						.Height = static_cast<uint32_t>(height),
+					};
 
 					texture->Create(spec, pixels);
 					stbi_image_free(pixels);
@@ -340,8 +344,11 @@ bool Mesh::Load(const std::filesystem::path& path)
 							spec.DebugName    = gltfImage.name.empty() ? std::string(m_Name) : std::string(gltfImage.name);
 							spec.Format       = format;
 							spec.GenerateMips = true;
-							spec.Width        = static_cast<uint32_t>(width);
-							spec.Height       = static_cast<uint32_t>(height);
+							spec.Size =
+							{
+								.Width  = static_cast<uint32_t>(width),
+								.Height = static_cast<uint32_t>(height),
+							};
 
 							texture->Create(spec, pixels);
 							stbi_image_free(pixels);
@@ -377,16 +384,20 @@ bool Mesh::Load(const std::filesystem::path& path)
 				material->SetRenderMode(MaterialRenderMode::Opaque);
 				material->SetAlphaCutoff(0.0f);
 				break;
+
 			case fastgltf::AlphaMode::Mask:
 				material->SetRenderMode(MaterialRenderMode::Cutout);
 				material->SetAlphaCutoff(static_cast<float>(gltfMaterial.alphaCutoff));
 				break;
+
 			case fastgltf::AlphaMode::Blend:
 				material->SetRenderMode(MaterialRenderMode::Transparent);
-				material->SetBlendSrc(BlendFactor::SrcAlpha);
-				material->SetBlendDst(BlendFactor::OneMinusSrcAlpha);
+				material->SetAlphaCutoff(0.0f);
 				break;
 		}
+
+		// Face culling
+		material->SetCullMode(gltfMaterial.doubleSided ? CullMode::None : CullMode::Back);
 
 		// PBR factors
 		const auto& pbr = gltfMaterial.pbrData;
@@ -645,7 +656,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 				for (uint32_t geomIndex : meshSubmeshes[mi])
 				{
-					// Clone from stable geometrySubmeshes — each node owns its own record
+					// Clone from stable geometrySubmeshes - each node owns its own record
 					const uint32_t nodeSubmeshIndex = static_cast<uint32_t>(m_Submeshes.size());
 					m_Submeshes.push_back(geometrySubmeshes[geomIndex]);
 					node.Submeshes.push_back(nodeSubmeshIndex);

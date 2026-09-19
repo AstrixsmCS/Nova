@@ -1,34 +1,13 @@
 #pragma once
 
 #include "Core/Application.hpp"
+#include "Asset/AssetManager.hpp"
 
-#include "Renderer/Buffer.hpp"
-#include "Renderer/Camera.hpp"
-#include "Renderer/GraphicsState.hpp"
-#include "Renderer/Image.hpp"
-#include "Renderer/Material.hpp"
-#include "Renderer/MaterialSystem.hpp"
-#include "Renderer/Mesh.hpp"
-#include "Renderer/Renderer.hpp"
-#include "Renderer/Shader.hpp"
-#include "Renderer/Texture.hpp"
-
-#include <array>
-
-struct CameraUniforms
-{
-	glm::mat4 ViewProjection        { 1.0f };
-	glm::mat4 InverseViewProjection { 1.0f };
-	glm::vec3 Position;
-	float     _Pad0 = 0.0f;
-};
-
-struct DirectionalLight
-{
-	glm::vec3 Direction{ -1.0f, -1.0f, -1.0f };
-	glm::vec3 Color{ 1.0f, 1.0f, 1.0f };
-	float Intensity = 3.0f;
-};
+#include "Renderer/Vulkan/Buffer.hpp"
+#include "Renderer/Vulkan/Shader.hpp"
+#include "Renderer/Vulkan/Texture.hpp"
+#include "Renderer/Vulkan/GraphicsState.hpp"
+#include "Renderer/Vulkan/Image.hpp"
 
 class EditorApplication final : public Application
 {
@@ -42,19 +21,16 @@ protected:
 	void OnShutdown()       override;
 
 private:
-	void CreateDepthImage(uint32_t width, uint32_t height);
-	void DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh);
+	void CreateDepthImage(const Dimensions& size);
 
 private:
-	std::shared_ptr<Shader> m_GeometryShader;
-	GraphicsState           m_GeometryState;
-	Material                m_GeometryMaterial;
+	VertexBuffer m_VertexBuffer;
+	IndexBuffer  m_IndexBuffer;
 
-	Mesh                  m_Mesh;
-	DirectionalLight m_DirectionalLight;
+	std::shared_ptr<Shader> m_Shader;
+	GraphicsState           m_GraphicsState;
 
-	Camera m_Camera;
-	std::array<UniformBuffer, Renderer::GetFramesInFlight()> m_CameraBuffers;
+	std::shared_ptr<Texture2D> m_Texture;
 
 	Image2D m_DepthImage;
 };

@@ -1,17 +1,8 @@
 #pragma once
 
 #include "Vulkan.hpp"
+#include "Renderer/RendererTypes.hpp"
 #include "Allocator.hpp"
-
-enum class ShaderDataType
-{
-	None = 0,
-	Float, Float2, Float3, Float4,
-	Mat3, Mat4,
-	Int, Int2, Int3, Int4,
-	UInt, UInt2, UInt3, UInt4,
-	Bool
-};
 
 inline uint32_t ShaderDataTypeSize(ShaderDataType type)
 {

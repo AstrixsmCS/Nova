@@ -1,6 +1,8 @@
 #include "Image.hpp"
 
-#include "RendererContext.hpp"
+#include "VulkanUtils.hpp"
+
+#include "Context.hpp"
 
 #include <cassert>
 #include <format>
@@ -13,7 +15,7 @@ VkImageView Image::GetMipView(uint32_t mip)
 	if (it != m_PerMipViews.end())
 		return it->second;
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	// Per-mip sampling view
 	VkImageAspectFlags aspectMask = Utils::IsDepthFormat(m_Specification.Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
@@ -37,13 +39,16 @@ VkImageView Image::GetMipView(uint32_t mip)
 
 void Image2D::Create(const ImageSpecification& specification)
 {
-	assert(specification.Width > 0 && specification.Height > 0 && specification.Mips > 0);
+	assert(specification.Size.Width > 0);
+	assert(specification.Size.Height > 0);
+	assert(specification.Size.Depth == 1);
+	assert(specification.Mips > 0);
 
 	Destroy();
 
 	m_Specification = specification;
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT; // TODO: this (probably) shouldn't be implied
 	if (m_Specification.Usage == ImageUsage::Attachment)
@@ -62,18 +67,20 @@ void Image2D::Create(const ImageSpecification& specification)
 		usage |= VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	}
 
-	VkImageCreateInfo imageInfo  = {};
-	imageInfo.sType              = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	imageInfo.imageType          = VK_IMAGE_TYPE_2D;
-	imageInfo.format             = ToVulkan(specification.Format);
-	imageInfo.extent             = { specification.Width, specification.Height, 1 };
-	imageInfo.mipLevels          = specification.Mips;
-	imageInfo.arrayLayers        = 1;
-	imageInfo.samples            = VK_SAMPLE_COUNT_1_BIT;
-	imageInfo.tiling             = VK_IMAGE_TILING_OPTIMAL;
-	imageInfo.usage              = usage;
-	imageInfo.sharingMode        = VK_SHARING_MODE_EXCLUSIVE;
-	imageInfo.initialLayout      = VK_IMAGE_LAYOUT_UNDEFINED;
+	VkImageCreateInfo imageInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = ToVulkan(specification.Format),
+		.extent = ToVulkan(specification.Size),
+		.mipLevels = specification.Mips,
+		.arrayLayers = 1,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = usage,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+	};
 
 	VmaAllocationCreateInfo allocInfo = {};
 	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
@@ -143,7 +150,7 @@ void Image2D::Destroy()
 	if (!IsValid())
 		return;
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	if (m_StorageIndex != Descriptor::INVALID_INDEX)
 	{
@@ -181,14 +188,18 @@ void Image2D::Destroy()
 	m_DescriptorInfo = {};
 }
 
-void Image2D::Resize(uint32_t width, uint32_t height)
+void Image2D::Resize(const Dimensions& size)
 {
-	if (width == GetWidth() && height == GetHeight())
+	if (size.Width == GetWidth() && size.Height == GetHeight())
 		return;
 
+	assert(size.Width > 0);
+	assert(size.Height > 0);
+	assert(size.Depth == 1);
+
 	ImageSpecification specification = m_Specification;
-	specification.Width  = width;
-	specification.Height = height;
+	specification.Size = size;
+
 	Create(specification);
 }
 
@@ -204,7 +215,7 @@ void ImageView::Create(const ImageViewSpecification& specification)
 	const Image2D&            src     = *specification.Image;
 	const ImageSpecification& srcSpec = src.GetSpecification();
 
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	// Color or depth-only sampling view
 	VkImageAspectFlags aspectMask = Utils::IsDepthFormat(srcSpec.Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
@@ -233,7 +244,7 @@ void ImageView::Destroy()
 	if (m_ImageView == VK_NULL_HANDLE)
 		return;
 
-	vkDestroyImageView(RendererContext::Get().GetDevice(), m_ImageView, nullptr);
+	vkDestroyImageView(Context::Get().GetDevice(), m_ImageView, nullptr);
 	m_ImageView      = VK_NULL_HANDLE;
 	m_DescriptorInfo = {};
 }

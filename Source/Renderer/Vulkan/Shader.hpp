@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Vulkan.hpp"
-#include "RendererTypes.hpp"
+#include "Renderer/RendererTypes.hpp"
 
 #include "Asset/Asset.hpp"
 
@@ -68,8 +68,6 @@ public:
 	const std::vector<PushConstantRange>&  GetPushConstantRanges()  const { return m_ReflectionData.PushConstantRanges; }
 	const std::vector<PushConstantMember>& GetPushConstantMembers() const { return m_ReflectionData.PushConstantMembers; }
 	const std::vector<DescriptorBinding>&  GetDescriptorBindings()  const { return m_ReflectionData.DescriptorBindings; }
-
-	static VkShaderStageFlagBits ToVulkanStage(ShaderStage stage);
 
 	static AssetType GetStaticType() { return AssetType::Shader; }
 	AssetType GetAssetType() const override { return AssetType::Shader; }

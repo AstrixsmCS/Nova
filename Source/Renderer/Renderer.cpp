@@ -1,10 +1,10 @@
 #include "Renderer.hpp"
 
-#include "RendererContext.hpp"
+#include "Vulkan/Context.hpp"
 
 void Renderer::Initialize(SDL_Window* windowHandle)
 {
-	RendererContext::Initialize();
+	Context::Initialize();
 
 	s_SwapChain = std::make_unique<SwapChain>(windowHandle);
 	s_SwapChain->Initialize();
@@ -22,12 +22,12 @@ void Renderer::Shutdown()
 
 	s_SwapChain.reset();
 
-	RendererContext::Shutdown();
+	Context::Shutdown();
 }
 
 void Renderer::WaitForGPU()
 {
-	vkDeviceWaitIdle(RendererContext::Get().GetDevice());
+	vkDeviceWaitIdle(Context::Get().GetDevice());
 }
 
 bool Renderer::BeginFrame()
@@ -97,7 +97,7 @@ void Renderer::EndFrame()
 		.pSignalSemaphoreInfos    = signalInfos
 	};
 
-	VK_CHECK(vkQueueSubmit2(RendererContext::Get().GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE));
+	VK_CHECK(vkQueueSubmit2(Context::Get().GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE));
 
 	s_FrameSignalValues[GetCurrentFrameIndex()] = signalValue;
 }
@@ -110,7 +110,7 @@ void Renderer::Present()
 
 void Renderer::CreateSyncObjects()
 {
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	const uint32_t imageCount = s_SwapChain->GetImageCount();
 
@@ -131,7 +131,7 @@ void Renderer::CreateSyncObjects()
 
 void Renderer::DestroySyncObjects()
 {
-	VkDevice device = RendererContext::Get().GetDevice();
+	VkDevice device = Context::Get().GetDevice();
 
 	s_FrameTimeline.Shutdown();
 
@@ -143,43 +143,4 @@ void Renderer::DestroySyncObjects()
 
 	s_ImageAvailableSemaphores.clear();
 	s_RenderFinishedSemaphores.clear();
-}
-
-void Renderer::ClearColor(float red, float green, float blue, float alpha)
-{
-	const VkRenderingAttachmentInfo colorAttachment
-	{
-		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-		.imageView = s_SwapChain->GetCurrentImageView(),
-		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-		.clearValue =
-		{
-			.color =
-			{
-				.float32 = { red, green, blue, alpha }
-			}
-		}
-	};
-
-	const VkExtent2D extent = s_SwapChain->GetExtent();
-
-	const VkRenderingInfo renderingInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-		.renderArea =
-		{
-			.offset = { 0, 0 },
-			.extent = extent
-		},
-		.layerCount = 1,
-		.colorAttachmentCount = 1,
-		.pColorAttachments = &colorAttachment
-	};
-
-	VkCommandBuffer commandBuffer = GetCurrentCommandBuffer().GetHandle();
-
-	vkCmdBeginRendering(commandBuffer, &renderingInfo);
-	vkCmdEndRendering(commandBuffer);
 }

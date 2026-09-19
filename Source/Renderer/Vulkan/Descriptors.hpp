@@ -2,20 +2,11 @@
 
 #include "Vulkan.hpp"
 
+#include "Renderer/RendererTypes.hpp"
+
 #include <cstdint>
 #include <vector>
 #include <array>
-
-enum class DefaultSampler : uint32_t
-{
-	LinearRepeat = 0,
-	LinearClamp,
-	NearestClamp,
-	AnisotropicRepeat,
-	ShadowCompare,
-
-	Count
-};
 
 class Descriptor
 {

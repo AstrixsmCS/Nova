@@ -117,7 +117,7 @@ bool TextureImporter::Import(const ImportContext& context, const TextureImportSe
 
 		data.Width  = static_cast<uint32_t>(width);
 		data.Height = static_cast<uint32_t>(height);
-		data.Format = Format::RGBA32_Float;
+		// data.Format = Format::RGBA32_Float;
 
 		const size_t byteCount = static_cast<size_t>(width) * static_cast<size_t>(height) * 4 * sizeof(float);
 
@@ -151,12 +151,12 @@ bool TextureImporter::Import(const ImportContext& context, const TextureImportSe
 		switch (settings.Usage)
 		{
 			case TextureUsage::Color:
-				data.Format = Format::RGBA8_SRGB;
+				// data.Format = Format::RGBA8_SRGB;
 				break;
 
 			case TextureUsage::Normal:
 			case TextureUsage::Data:
-				data.Format = Format::RGBA8_UNorm;
+				// data.Format = Format::RGBA8_UNorm;
 				break;
 		}
 

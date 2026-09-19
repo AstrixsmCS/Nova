@@ -1,6 +1,6 @@
 #pragma once
 
-// ==== Forward declarations — full definition only needed in Allocator.cpp ====
+// ==== Forward declarations - full definition only needed in Allocator.cpp ====
 typedef struct VmaAllocator_T* VmaAllocator;
 typedef struct VmaAllocation_T* VmaAllocation;
 

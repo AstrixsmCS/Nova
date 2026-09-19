@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CommandBuffer.hpp"
-#include "RendererContext.hpp"
+#include "Context.hpp"
 
 #include <array>
 #include <vector>
@@ -37,7 +37,7 @@ class FrameData
 public:
 	void Initialize()
 	{
-		RendererContext& context = RendererContext::Get();
+		Context& context = Context::Get();
 
 		m_FrameIndex = 0;
 

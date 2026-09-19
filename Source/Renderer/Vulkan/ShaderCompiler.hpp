@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RendererTypes.hpp"
+#include "../RendererTypes.hpp"
 #include "Shader.hpp"
 
 #include <slang/slang.h>

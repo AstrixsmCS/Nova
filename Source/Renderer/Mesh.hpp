@@ -2,9 +2,9 @@
 
 #include "Asset/Asset.hpp"
 
-#include "Renderer/Buffer.hpp"
-#include "Renderer/Material.hpp"
-#include "Renderer/Texture.hpp"
+#include "Vulkan/Buffer.hpp"
+#include "Material.hpp"
+#include "Vulkan/Texture.hpp"
 
 #include <glm/glm.hpp>
 

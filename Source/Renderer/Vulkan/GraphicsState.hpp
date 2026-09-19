@@ -1,24 +1,16 @@
 #pragma once
 
 #include "Vulkan.hpp"
+#include "VulkanUtils.hpp"
 
 #include "Buffer.hpp"
 #include "CommandBuffer.hpp"
-#include "RendererTypes.hpp"
+#include "Renderer/RendererTypes.hpp"
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <vector>
-
-enum class BlendMode : uint8_t
-{
-	None = 0,
-	Alpha,
-	PremultipliedAlpha,
-	Additive,
-	Multiply
-};
 
 struct GraphicsState
 {
@@ -49,49 +41,78 @@ struct GraphicsState
 	}
 
 private:
-	static VkFormat ShaderDataTypeToVulkanFormat(ShaderDataType type)
-	{
-		switch (type)
-		{
-			case ShaderDataType::Float:  return VK_FORMAT_R32_SFLOAT;
-			case ShaderDataType::Float2: return VK_FORMAT_R32G32_SFLOAT;
-			case ShaderDataType::Float3: return VK_FORMAT_R32G32B32_SFLOAT;
-			case ShaderDataType::Float4: return VK_FORMAT_R32G32B32A32_SFLOAT;
-			case ShaderDataType::Int:    return VK_FORMAT_R32_SINT;
-			case ShaderDataType::Int2:   return VK_FORMAT_R32G32_SINT;
-			case ShaderDataType::Int3:   return VK_FORMAT_R32G32B32_SINT;
-			case ShaderDataType::Int4:   return VK_FORMAT_R32G32B32A32_SINT;
-			case ShaderDataType::UInt:   return VK_FORMAT_R32_UINT;
-			default:
-				return VK_FORMAT_UNDEFINED;
-		}
-	}
-
 	static VkColorBlendEquationEXT CreateBlendEquation(BlendMode mode)
 	{
-		if (mode == BlendMode::None)
+		switch (mode)
 		{
-			return
+			case BlendMode::None:
 			{
-				.srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
-				.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
-				.colorBlendOp        = VK_BLEND_OP_ADD,
-				.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-				.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-				.alphaBlendOp        = VK_BLEND_OP_ADD
-			};
+				return
+				{
+					.srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+					.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+					.colorBlendOp        = VK_BLEND_OP_ADD,
+					.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+					.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+					.alphaBlendOp        = VK_BLEND_OP_ADD
+				};
+			}
+
+			case BlendMode::Alpha:
+			{
+				return
+				{
+					.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+					.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+					.colorBlendOp        = VK_BLEND_OP_ADD,
+					.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+					.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+					.alphaBlendOp        = VK_BLEND_OP_ADD
+				};
+			}
+
+			case BlendMode::PremultipliedAlpha:
+			{
+				return
+				{
+					.srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+					.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+					.colorBlendOp        = VK_BLEND_OP_ADD,
+					.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+					.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+					.alphaBlendOp        = VK_BLEND_OP_ADD
+				};
+			}
+
+			case BlendMode::Additive:
+			{
+				return
+				{
+					.srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+					.dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+					.colorBlendOp        = VK_BLEND_OP_ADD,
+					.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+					.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+					.alphaBlendOp        = VK_BLEND_OP_ADD
+				};
+			}
+
+			case BlendMode::Multiply:
+			{
+				return
+				{
+					.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR,
+					.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+					.colorBlendOp        = VK_BLEND_OP_ADD,
+					.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+					.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+					.alphaBlendOp        = VK_BLEND_OP_ADD
+				};
+			}
 		}
 
-		return
-		{
-			.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-			.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-			.colorBlendOp        = VK_BLEND_OP_ADD,
-			.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-			.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-			.alphaBlendOp        = VK_BLEND_OP_ADD
-		};
-	}
+		std::abort();
+}
 
 	void ApplyVertexInput(VkCommandBuffer cmd) const
 	{
@@ -113,7 +134,7 @@ private:
 
 			for (const auto& element : VertexLayout)
 			{
-				const VkFormat format = ShaderDataTypeToVulkanFormat(element.Type);
+				const VkFormat format = ToVulkan(element.Type);
 
 				assert(format != VK_FORMAT_UNDEFINED);
 

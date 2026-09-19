@@ -6,8 +6,6 @@
 
 #include "Scene/Scene.hpp"
 #include "Scene/SceneSerializer.hpp"
-#include "Renderer/Shader.hpp"
-#include "Renderer/Texture.hpp"
 
 #include "Importers/SceneImporter.hpp"
 #include "Importers/ShaderImporter.hpp"
@@ -417,13 +415,13 @@ std::unique_ptr<AssetData> AssetManager::DeserializeAsset(AssetType type, const 
 				return nullptr;
 			return data;
 		}
-		case AssetType::Texture:
+		/*case AssetType::Texture:
 		{
 			auto data = std::make_unique<TextureAssetData>();
 			if (!AssetSerializer::DeserializeTexture(path, *data))
 				return nullptr;
 			return data;
-		}
+		}*/
 		default:
 			NV_ERROR("AssetManager: no deserializer for type {}", static_cast<uint32_t>(type));
 			return nullptr;
@@ -445,7 +443,7 @@ std::shared_ptr<Asset> AssetManager::FinalizeAsset(AssetType type, AssetData& da
 
 			return scene;
 		}
-		case AssetType::Shader:
+		/*case AssetType::Shader:
 		{
 			const auto& shaderData = static_cast<const ShaderAssetData&>(data);
 
@@ -480,7 +478,7 @@ std::shared_ptr<Asset> AssetManager::FinalizeAsset(AssetType type, AssetData& da
 				return nullptr;
 
 			return texture;
-		}
+		}*/
 		default:
 			NV_ERROR("AssetManager: no finalizer for type {}", static_cast<uint32_t>(type));
 			return nullptr;

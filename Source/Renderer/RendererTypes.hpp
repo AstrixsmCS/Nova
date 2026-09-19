@@ -2,26 +2,151 @@
 
 #include <cstdint>
 
-enum class PipelineBindPoint : uint8_t
+enum class PresentMode : uint8_t
 {
-	Graphics,
-	Compute
+	FIFO = 0,
+	FIFORelaxed,
+	Immediate,
+	Mailbox,
 };
 
-enum class LoadOp : uint8_t
+struct ScissorRect
 {
-	Load = 0,
-	Clear,
-	DontCare,
-	None,
-	Invalid = 0xFF
+	uint32_t X = 0;
+	uint32_t Y = 0;
+	uint32_t Width = 0;
+	uint32_t Height = 0;
 };
 
-enum class StoreOp : uint8_t
+struct Dimensions
 {
-	Store = 0,
-	DontCare,
-	None
+	uint32_t Width = 1;
+	uint32_t Height = 1;
+	uint32_t Depth = 1;
+
+	bool operator==(const Dimensions&) const = default;
+};
+
+struct Viewport
+{
+	float X = 0.0f;
+	float Y = 0.0f;
+
+	float Width = 1.0f;
+	float Height = 1.0f;
+
+	float MinDepth = 0.0f;
+	float MaxDepth = 1.0f;
+};
+
+union ClearColorValue
+{
+	float Float32[4];
+	int32_t Int32[4];
+	uint32_t UInt32[4];
+};
+
+enum class ImageUsage : uint32_t
+{
+	None = 0,
+	Texture,
+	Storage,
+	Attachment
+};
+
+enum class IndexFormat : uint8_t
+{
+	UInt8 = 0,
+	UInt16,
+	UInt32
+};
+
+enum class Topology : uint8_t
+{
+	Point = 0,
+	Line,
+	LineStrip,
+	Triangle,
+	TriangleStrip,
+	Patch
+};
+
+enum class ColorSpace : uint8_t
+{
+	SRGBNonlinear = 0,
+	SRGBExtendedLinear,
+	HDR10,
+	BT709Linear
+};
+
+enum class TextureType : uint8_t
+{
+	Texture2D = 0,
+	Texture3D,
+	Cube
+};
+
+enum class CullMode : uint8_t
+{
+	None = 0,
+	Front,
+	Back
+};
+
+enum class WindingMode : uint8_t
+{
+	CCW = 0,
+	CW
+};
+
+enum class CompareOp : uint8_t
+{
+	Never = 0,
+	Less,
+	Equal,
+	LessEqual,
+	Greater,
+	NotEqual,
+	GreaterEqual,
+	Always
+};
+
+enum class StencilOp : uint8_t
+{
+	Keep = 0,
+	Zero,
+	Replace,
+	IncrementClamp,
+	DecrementClamp,
+	Invert,
+	IncrementWrap,
+	DecrementWrap
+};
+
+enum class BlendMode : uint8_t
+{
+	None = 0,
+	Alpha,
+	PremultipliedAlpha,
+	Additive,
+	Multiply
+};
+
+enum class PolygonMode : uint8_t
+{
+	Fill = 0,
+	Line,
+	Point
+};
+
+enum class ShaderDataType
+{
+	None = 0,
+	Float, Float2, Float3, Float4,
+	Mat3, Mat4,
+	Int, Int2, Int3, Int4,
+	UInt, UInt2, UInt3, UInt4,
+	Bool
 };
 
 enum class Format : uint8_t
@@ -132,128 +257,40 @@ enum class Format : uint8_t
 	YUV_420P
 };
 
-enum class PolygonMode : uint8_t
+enum class LoadOp : uint8_t
 {
-	Fill = 0,
-	Line,
-	Point
+	Load = 0,
+	Clear,
+	DontCare,
+	None,
+	Invalid = 0xFF
 };
 
-enum class CompareOp : uint8_t
+enum class StoreOp : uint8_t
 {
-	Never = 0,
-	Less,
-	Equal,
-	LessEqual,
-	Greater,
-	NotEqual,
-	GreaterEqual,
-	Always
+	Store = 0,
+	DontCare,
+	None
 };
 
-enum class StencilOp : uint8_t
-{
-	Keep = 0,
-	Zero,
-	Replace,
-	IncrementClamp,
-	DecrementClamp,
-	Invert,
-	IncrementWrap,
-	DecrementWrap
-};
-
-enum class BlendOp : uint8_t
-{
-	Add = 0,
-	Subtract,
-	ReverseSubtract,
-	Min,
-	Max
-};
-
-enum class BlendFactor : uint8_t
-{
-	Zero = 0,
-	One,
-	SrcColor,
-	OneMinusSrcColor,
-	SrcAlpha,
-	OneMinusSrcAlpha,
-	DstColor,
-	OneMinusDstColor,
-	DstAlpha,
-	OneMinusDstAlpha,
-	SrcAlphaSaturated,
-	BlendColor,
-	OneMinusBlendColor,
-	BlendAlpha,
-	OneMinusBlendAlpha,
-	Src1Color,
-	OneMinusSrc1Color,
-	Src1Alpha,
-	OneMinusSrc1Alpha
-};
-
-enum class CullMode : uint8_t
+enum class ResolveMode : uint8_t
 {
 	None = 0,
-	Front,
-	Back
+	SampleZero,
+	Average,
+	Min,
+	Max,
 };
 
-enum class WindingMode : uint8_t
+enum class DefaultSampler : uint32_t
 {
-	CCW = 0,
-	CW
-};
+	LinearRepeat = 0,
+	LinearClamp,
+	NearestClamp,
+	AnisotropicRepeat,
+	ShadowCompare,
 
-enum class TextureType : uint8_t
-{
-	Texture2D = 0,
-	Texture3D,
-	Cube
-};
-
-enum class SamplerFilter : uint8_t
-{
-	Nearest = 0,
-	Linear,
-	Cubic
-};
-
-enum class SamplerMip : uint8_t
-{
-	Disabled = 0,
-	Nearest,
-	Linear
-};
-
-enum class SamplerWrap : uint8_t
-{
-	Repeat = 0,
-	ClampToEdge,
-	ClampToBorder,
-	MirrorRepeat,
-	MirrorClampToEdge
-};
-
-enum class Topology : uint8_t
-{
-	Point = 0,
-	Line,
-	LineStrip,
-	Triangle,
-	TriangleStrip,
-	Patch
-};
-
-enum class ColorSpace : uint8_t
-{
-	SRGBNonlinear = 0,
-	SRGBExtendedLinear,
-	HDR10,
-	BT709Linear
+	Count
 };
 
 enum class ShaderStage : uint32_t
