@@ -31,26 +31,26 @@ void SwapChain::Initialize()
 	CreateSurface();
 
 	// Block on (0,0) extent (launched-minimized); Vulkan rejects zero-sized swapchains.
-	int windowWidth = 0;
-	int windowHeight = 0;
-
-	while (windowWidth == 0 || windowHeight == 0)
+	int w = 0, h = 0;
+	while (w == 0 || h == 0)
 	{
-		SDL_GetWindowSizeInPixels(m_WindowHandle, &windowWidth, &windowHeight);
-
-		if (windowWidth == 0 || windowHeight == 0)
+		SDL_GetWindowSizeInPixels(m_WindowHandle, &w, &h);
+		if (w == 0 || h == 0)
 			SDL_WaitEvent(nullptr);
 	}
 
-	uint32_t width = static_cast<uint32_t>(windowWidth);
-	uint32_t height = static_cast<uint32_t>(windowHeight);
+	uint32_t width  = static_cast<uint32_t>(w);
+	uint32_t height = static_cast<uint32_t>(h);
 
 	CreateSwapchain(&width, &height);
 	CreateImageViews();
+	CreateSemaphores();
 }
 
 void SwapChain::Cleanup()
 {
+	DestroySemaphores();
+
 	VkDevice device = Context::Get().GetDevice();
 
 	for (auto& image : m_Images)
@@ -68,6 +68,39 @@ void SwapChain::Cleanup()
 		vkDestroySwapchainKHR(device, m_SwapChain, nullptr);
 		m_SwapChain = VK_NULL_HANDLE;
 	}
+}
+
+void SwapChain::CreateSemaphores()
+{
+	VkDevice device = Context::Get().GetDevice();
+	const VkSemaphoreCreateInfo info{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+
+	for (VkSemaphore& sem : m_ImageAvailableSemaphores)
+		VK_CHECK(vkCreateSemaphore(device, &info, nullptr, &sem));
+
+	m_RenderFinishedSemaphores.resize(m_Images.size());
+	for (VkSemaphore& sem : m_RenderFinishedSemaphores)
+		VK_CHECK(vkCreateSemaphore(device, &info, nullptr, &sem));
+}
+
+void SwapChain::DestroySemaphores()
+{
+	VkDevice device = Context::Get().GetDevice();
+
+	for (VkSemaphore& sem : m_ImageAvailableSemaphores)
+	{
+		if (sem != VK_NULL_HANDLE)
+		{
+			vkDestroySemaphore(device, sem, nullptr);
+			sem = VK_NULL_HANDLE;
+		}
+	}
+
+	for (VkSemaphore sem : m_RenderFinishedSemaphores)
+		if (sem != VK_NULL_HANDLE)
+			vkDestroySemaphore(device, sem, nullptr);
+
+	m_RenderFinishedSemaphores.clear();
 }
 
 void SwapChain::OnResize(uint32_t width, uint32_t height)
@@ -261,40 +294,26 @@ void SwapChain::CreateImageViews()
 	}
 }
 
-uint32_t SwapChain::AcquireNextImage(VkSemaphore signalSemaphore)
+uint32_t SwapChain::AcquireNextImage(uint32_t frameSlot)
 {
-	// Consume a deferred rebuild requested by Present().
 	if (m_NeedsResize)
 	{
-		int windowWidth = 0;
-		int windowHeight = 0;
-
-		SDL_GetWindowSizeInPixels(m_WindowHandle, &windowWidth, &windowHeight);
-
-		if (windowWidth > 0 && windowHeight > 0)
-		{
-			OnResize(static_cast<uint32_t>(windowWidth), static_cast<uint32_t>(windowHeight));
-		}
-
+		int w = 0, h = 0;
+		SDL_GetWindowSizeInPixels(m_WindowHandle, &w, &h);
+		if (w > 0 && h > 0)
+			OnResize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
 		m_NeedsResize = false;
-
 		return UINT32_MAX;
 	}
 
-	VkResult result = vkAcquireNextImageKHR(Context::Get().GetDevice(), m_SwapChain, UINT64_MAX, signalSemaphore, VK_NULL_HANDLE, &m_CurrentImageIndex);
+	VkResult result = vkAcquireNextImageKHR(Context::Get().GetDevice(), m_SwapChain, UINT64_MAX, m_ImageAvailableSemaphores[frameSlot], VK_NULL_HANDLE, &m_CurrentImageIndex);
 
 	if (result == VK_ERROR_OUT_OF_DATE_KHR)
 	{
-		int windowWidth = 0;
-		int windowHeight = 0;
-
-		SDL_GetWindowSizeInPixels(m_WindowHandle, &windowWidth, &windowHeight);
-
-		if (windowWidth > 0 && windowHeight > 0)
-		{
-			OnResize(static_cast<uint32_t>(windowWidth), static_cast<uint32_t>(windowHeight));
-		}
-
+		int w = 0, h = 0;
+		SDL_GetWindowSizeInPixels(m_WindowHandle, &w, &h);
+		if (w > 0 && h > 0)
+			OnResize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
 		return UINT32_MAX;
 	}
 
@@ -307,29 +326,28 @@ uint32_t SwapChain::AcquireNextImage(VkSemaphore signalSemaphore)
 	return m_CurrentImageIndex;
 }
 
-void SwapChain::Present(VkSemaphore waitSemaphore)
+void SwapChain::Present(uint32_t frameSlot)
 {
+	(void)frameSlot; // available for future per-slot present fences
+
+	VkSemaphore renderFinished = m_RenderFinishedSemaphores[m_CurrentImageIndex];
+
 	VkPresentInfoKHR presentInfo
 	{
-		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+		.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &waitSemaphore,
-		.swapchainCount = 1,
-		.pSwapchains = &m_SwapChain,
-		.pImageIndices = &m_CurrentImageIndex
+		.pWaitSemaphores    = &renderFinished,
+		.swapchainCount     = 1,
+		.pSwapchains        = &m_SwapChain,
+		.pImageIndices      = &m_CurrentImageIndex
 	};
 
 	VkResult result = vkQueuePresentKHR(Context::Get().GetGraphicsQueue(), &presentInfo);
 
-	// Defer recreation until AcquireNextImage().
-	if (result == VK_ERROR_OUT_OF_DATE_KHR)
-	{
+	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
 		m_NeedsResize = true;
-	}
-	else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-	{
+	else if (result != VK_SUCCESS)
 		VK_CHECK(result);
-	}
 }
 
 void SwapChain::FindImageFormatAndColorSpace()

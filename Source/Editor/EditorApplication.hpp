@@ -4,9 +4,9 @@
 #include "Asset/AssetManager.hpp"
 
 #include "Renderer/Vulkan/Buffer.hpp"
+#include "Renderer/Vulkan/CommandBuffer.hpp"
 #include "Renderer/Vulkan/Shader.hpp"
 #include "Renderer/Vulkan/Texture.hpp"
-#include "Renderer/Vulkan/GraphicsState.hpp"
 #include "Renderer/Vulkan/Image.hpp"
 
 class EditorApplication final : public Application

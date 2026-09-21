@@ -18,9 +18,16 @@ namespace
 	constexpr uint64_t InitialVertexBufferSize = 64 * 1024 * sizeof(ImDrawVert);
 	constexpr uint64_t InitialIndexBufferSize  = 64 * 1024 * sizeof(ImDrawIdx);
 
-	constexpr VkIndexType ImGuiIndexType = sizeof(ImDrawIdx) == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+	// ImGui uses a non-standard index type — keep this as a raw VkIndexType
+	// since CommandBuffer::BindIndexBuffer takes IndexFormat, not VkIndexType.
+	constexpr VkIndexType ImGuiIndexType = sizeof(ImDrawIdx) == 2
+		? VK_INDEX_TYPE_UINT16
+		: VK_INDEX_TYPE_UINT32;
 
-	// The shader receives Color as a packed uint.
+	constexpr IndexFormat ImGuiIndexFormat = sizeof(ImDrawIdx) == 2
+		? IndexFormat::UInt16
+		: IndexFormat::UInt32;
+
 	static_assert(sizeof(ImDrawIdx) == 2 || sizeof(ImDrawIdx) == 4);
 	static_assert(offsetof(ImDrawVert, pos) == 0);
 	static_assert(offsetof(ImDrawVert, uv)  == 8);
@@ -28,7 +35,8 @@ namespace
 	static_assert(sizeof(ImDrawVert) == 20);
 }
 
-// Lifecycle
+// ---- Lifecycle -------------------------------------------------------------
+
 void ImGuiLayer::Initialize(SDL_Window* window)
 {
 	assert(window);
@@ -173,6 +181,8 @@ void ImGuiLayer::End(CommandBuffer& commandBuffer)
 		RenderDrawData(commandBuffer, *drawData);
 }
 
+// ---- Font upload -----------------------------------------------------------
+
 bool ImGuiLayer::UploadFontTexture()
 {
 	ImGuiIO& io = ImGui::GetIO();
@@ -209,6 +219,8 @@ bool ImGuiLayer::UploadFontTexture()
 	return true;
 }
 
+// ---- Geometry upload -------------------------------------------------------
+
 void ImGuiLayer::UploadGeometry(FrameBuffers& frame, const ImDrawData& drawData)
 {
 	const uint64_t vertexBytes = static_cast<uint64_t>(drawData.TotalVtxCount) * sizeof(ImDrawVert);
@@ -217,7 +229,6 @@ void ImGuiLayer::UploadGeometry(FrameBuffers& frame, const ImDrawData& drawData)
 	if (vertexBytes > frame.VertexCapacity)
 	{
 		const uint64_t capacity = std::max(InitialVertexBufferSize, vertexBytes * 2);
-
 		frame.Vertices.Destroy();
 		frame.Vertices.Create(capacity, VertexBufferUsage::Dynamic);
 		frame.VertexCapacity = capacity;
@@ -226,7 +237,6 @@ void ImGuiLayer::UploadGeometry(FrameBuffers& frame, const ImDrawData& drawData)
 	if (indexBytes > frame.IndexCapacity)
 	{
 		const uint64_t capacity = std::max(InitialIndexBufferSize, indexBytes * 2);
-
 		frame.Indices.Destroy();
 		frame.Indices.Create(capacity);
 		frame.IndexCapacity = capacity;
@@ -253,14 +263,16 @@ void ImGuiLayer::UploadGeometry(FrameBuffers& frame, const ImDrawData& drawData)
 	}
 }
 
-void ImGuiLayer::SetupRenderState(CommandBuffer& commandBuffer, const FrameBuffers& frame, const ImDrawData& drawData, VkExtent2D extent)
+// ---- Render state setup ----------------------------------------------------
+
+void ImGuiLayer::SetupRenderState(CommandBuffer& cmd, const FrameBuffers& frame,
+								  const ImDrawData& drawData, VkExtent2D extent)
 {
-	const VkCommandBuffer cmd = commandBuffer.GetHandle();
+	m_Shader->Bind(cmd);
+	cmd.SetGraphicsState(m_State, 1);
 
-	m_Shader->Bind(commandBuffer);
-	m_State.Apply(commandBuffer, 1);
-
-	// Positive viewport height matches ImGui's downward-positive Y axis.
+	// ImGui uses a downward-positive Y axis so viewport height is positive,
+	// unlike the flipped viewport used elsewhere in Nova.
 	const VkViewport viewport
 	{
 		.x        = 0.0f,
@@ -277,18 +289,15 @@ void ImGuiLayer::SetupRenderState(CommandBuffer& commandBuffer, const FrameBuffe
 		.extent = extent
 	};
 
-	vkCmdSetViewportWithCount(cmd, 1, &viewport);
-	vkCmdSetScissorWithCount(cmd, 1, &scissor);
+	vkCmdSetViewportWithCount(cmd.GetHandle(), 1, &viewport);
+	vkCmdSetScissorWithCount(cmd.GetHandle(), 1, &scissor);
 
 	const VkDescriptorSet descriptorSet = Descriptor::GetSet();
+	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS,
+							m_Shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
-
-	const VkBuffer     vertexBuffer = frame.Vertices.GetBuffer();
-	const VkDeviceSize offset       = 0;
-
-	vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-	vkCmdBindIndexBuffer(cmd, frame.Indices.GetBuffer(), 0, ImGuiIndexType);
+	cmd.BindVertexBuffer(frame.Vertices.GetBuffer());
+	cmd.BindIndexBuffer(frame.Indices.GetBuffer(), ImGuiIndexFormat);
 
 	const glm::vec2 scale
 	{
@@ -306,7 +315,9 @@ void ImGuiLayer::SetupRenderState(CommandBuffer& commandBuffer, const FrameBuffe
 	m_Material.Set("Translate", translate);
 }
 
-void ImGuiLayer::RenderDrawData(CommandBuffer& commandBuffer, const ImDrawData& drawData)
+// ---- Draw ------------------------------------------------------------------
+
+void ImGuiLayer::RenderDrawData(CommandBuffer& cmd, const ImDrawData& drawData)
 {
 	if (drawData.TotalVtxCount <= 0 || drawData.TotalIdxCount <= 0)
 		return;
@@ -320,15 +331,13 @@ void ImGuiLayer::RenderDrawData(CommandBuffer& commandBuffer, const ImDrawData& 
 	if (framebufferWidth <= 0 || framebufferHeight <= 0)
 		return;
 
-	const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
+	const uint32_t frameIndex = Renderer::GetFrameSlot();
 	assert(frameIndex < m_Frames.size());
 
 	if (frameIndex >= m_Frames.size())
 		return;
 
 	const auto& ranges = m_Shader->GetPushConstantRanges();
-
-	// This UI material uses one contiguous push-constant range.
 	assert(ranges.size() == 1);
 
 	if (ranges.size() != 1)
@@ -345,9 +354,9 @@ void ImGuiLayer::RenderDrawData(CommandBuffer& commandBuffer, const ImDrawData& 
 		static_cast<uint32_t>(framebufferHeight)
 	};
 
-	const VkCommandBuffer cmd = commandBuffer.GetHandle();
+	DebugLabelScope label(cmd, "ImGui", 0xff9900ff);
 
-	SetupRenderState(commandBuffer, frame, drawData, extent);
+	SetupRenderState(cmd, frame, drawData, extent);
 
 	uint32_t globalVertexOffset = 0;
 	uint32_t globalIndexOffset  = 0;
@@ -361,7 +370,7 @@ void ImGuiLayer::RenderDrawData(CommandBuffer& commandBuffer, const ImDrawData& 
 			if (drawCommand.UserCallback)
 			{
 				if (drawCommand.UserCallback == ImDrawCallback_ResetRenderState)
-					SetupRenderState(commandBuffer, frame, drawData, extent);
+					SetupRenderState(cmd, frame, drawData, extent);
 				else
 					drawCommand.UserCallback(&drawList, &drawCommand);
 
@@ -388,7 +397,7 @@ void ImGuiLayer::RenderDrawData(CommandBuffer& commandBuffer, const ImDrawData& 
 			if (scissor.extent.width == 0 || scissor.extent.height == 0)
 				continue;
 
-			vkCmdSetScissorWithCount(cmd, 1, &scissor);
+			vkCmdSetScissorWithCount(cmd.GetHandle(), 1, &scissor);
 
 			const uint32_t textureIndex = static_cast<uint32_t>(drawCommand.GetTexID());
 			m_Material.Set("Texture", textureIndex);
@@ -399,20 +408,16 @@ void ImGuiLayer::RenderDrawData(CommandBuffer& commandBuffer, const ImDrawData& 
 			if (storage.size() != range.Size)
 				continue;
 
-			vkCmdPushConstants(cmd, m_Shader->GetPipelineLayout(), range.StageFlags, range.Offset, static_cast<uint32_t>(storage.size()), storage.data());
+			cmd.PushConstants(m_Shader->GetPipelineLayout(), range.StageFlags, storage.data(), static_cast<uint32_t>(storage.size()), range.Offset);
 
-			vkCmdDrawIndexed(cmd, drawCommand.ElemCount, 1, drawCommand.IdxOffset + globalIndexOffset, static_cast<int32_t>(drawCommand.VtxOffset + globalVertexOffset), 0);
+			cmd.DrawIndexed(drawCommand.ElemCount, 1, drawCommand.IdxOffset  + globalIndexOffset, static_cast<int32_t>(drawCommand.VtxOffset + globalVertexOffset));
 		}
 
 		globalVertexOffset += static_cast<uint32_t>(drawList.VtxBuffer.Size);
 		globalIndexOffset  += static_cast<uint32_t>(drawList.IdxBuffer.Size);
 	}
 
-	const VkRect2D fullScissor
-	{
-		.offset = { 0, 0 },
-		.extent = extent
-	};
-
-	vkCmdSetScissorWithCount(cmd, 1, &fullScissor);
+	// Restore full scissor after per-command clipping.
+	const VkRect2D fullScissor{ .offset = { 0, 0 }, .extent = extent };
+	vkCmdSetScissorWithCount(cmd.GetHandle(), 1, &fullScissor);
 }

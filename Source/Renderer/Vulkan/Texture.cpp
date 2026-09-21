@@ -12,6 +12,8 @@
 #include <cstring>
 #include <format>
 
+#include "CommandBuffer.hpp"
+
 void Texture2D::Create(const TextureSpecification& specification)
 {
 	assert(specification.Size.Width > 0);
@@ -122,7 +124,8 @@ void Texture2D::SetData(const void* data, size_t size)
 	std::memcpy(mapped, data, size);
 	vmaUnmapMemory(Allocator::GetAllocator(), stagingAllocation);
 
-	CommandPool&  commandPool  = Context::Get().GetImmediateCommandPool();
+	CommandPool commandPool;
+	commandPool.Create(Context::Get().GetGraphicsFamily());
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -135,7 +138,12 @@ void Texture2D::SetData(const void* data, size_t size)
 		.layerCount     = 1
 	};
 
-	SetImageLayout(commandBuffer.GetHandle(), m_Image.GetHandle(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipZero);
+	commandBuffer.ImageBarrier(m_Image.GetHandle(),
+						VK_IMAGE_LAYOUT_UNDEFINED,
+						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+						mipZero,
+						VK_PIPELINE_STAGE_2_NONE,
+						VK_PIPELINE_STAGE_2_COPY_BIT);
 
 	VkBufferImageCopy copyRegion
 	{
@@ -153,10 +161,15 @@ void Texture2D::SetData(const void* data, size_t size)
 
 	const VkImageLayout afterCopyLayout = m_Image.GetMipCount() > 1 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-	SetImageLayout(commandBuffer.GetHandle(), m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, afterCopyLayout, mipZero);
+	commandBuffer.ImageBarrier(m_Image.GetHandle(),
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					afterCopyLayout,
+					mipZero,
+					VK_PIPELINE_STAGE_2_COPY_BIT,
+					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 
 	commandBuffer.Flush();
-	commandPool.Reset();
+	commandPool.Destroy();
 
 	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
 }
@@ -166,7 +179,8 @@ void Texture2D::GenerateMips()
 	const uint32_t mipCount = m_Image.GetMipCount();
 	assert(mipCount > 1);
 
-	CommandPool&  commandPool  = Context::Get().GetImmediateCommandPool();
+	CommandPool commandPool;
+	commandPool.Create(Context::Get().GetGraphicsFamily());
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -187,7 +201,12 @@ void Texture2D::GenerateMips()
 			.layerCount     = 1
 		};
 
-		SetImageLayout(commandBuffer.GetHandle(), m_Image.GetHandle(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstRange);
+		commandBuffer.ImageBarrier(m_Image.GetHandle(),
+						VK_IMAGE_LAYOUT_UNDEFINED,
+						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+						dstRange,
+						VK_PIPELINE_STAGE_2_NONE,
+						VK_PIPELINE_STAGE_2_BLIT_BIT);
 
 		VkImageBlit blit{};
 		blit.srcOffsets[1]  = { mipWidth, mipHeight, 1 };
@@ -197,7 +216,12 @@ void Texture2D::GenerateMips()
 
 		vkCmdBlitImage(commandBuffer.GetHandle(), m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 
-		SetImageLayout(commandBuffer.GetHandle(), m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstRange);
+		commandBuffer.ImageBarrier(m_Image.GetHandle(),
+						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+						VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+						dstRange,
+						VK_PIPELINE_STAGE_2_BLIT_BIT,
+						VK_PIPELINE_STAGE_2_BLIT_BIT);
 
 		mipWidth  = nextWidth;
 		mipHeight = nextHeight;
@@ -212,10 +236,15 @@ void Texture2D::GenerateMips()
 		.layerCount     = 1
 	};
 
-	SetImageLayout(commandBuffer.GetHandle(), m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, allMips);
+	commandBuffer.ImageBarrier(m_Image.GetHandle(),
+					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					allMips,
+					VK_PIPELINE_STAGE_2_BLIT_BIT,
+					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 
 	commandBuffer.Flush();
-	commandPool.Reset();
+	commandPool.Destroy();
 }
 
 void TextureCube::Create(const TextureSpecification& specification)
@@ -436,7 +465,8 @@ void TextureCube::SetData(const void* data, size_t size)
 	std::memcpy(mapped, data, size);
 	vmaUnmapMemory(Allocator::GetAllocator(), stagingAllocation);
 
-	CommandPool&  commandPool  = Context::Get().GetImmediateCommandPool();
+	CommandPool commandPool;
+	commandPool.Create(Context::Get().GetGraphicsFamily());
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -449,7 +479,12 @@ void TextureCube::SetData(const void* data, size_t size)
 		.layerCount     = 6
 	};
 
-	SetImageLayout(commandBuffer.GetHandle(), m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipZero);
+	commandBuffer.ImageBarrier(m_Image,
+					VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					mipZero,
+					VK_PIPELINE_STAGE_2_NONE,
+					VK_PIPELINE_STAGE_2_COPY_BIT);
 
 	VkBufferImageCopy copyRegion
 	{
@@ -467,10 +502,15 @@ void TextureCube::SetData(const void* data, size_t size)
 
 	const VkImageLayout afterCopyLayout = m_MipCount > 1 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-	SetImageLayout(commandBuffer.GetHandle(), m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, afterCopyLayout, mipZero);
+	commandBuffer.ImageBarrier(m_Image,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					afterCopyLayout,
+					mipZero,
+					VK_PIPELINE_STAGE_2_COPY_BIT,
+					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 
 	commandBuffer.Flush();
-	commandPool.Reset();
+	commandPool.Destroy();
 
 	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
 
@@ -482,7 +522,8 @@ void TextureCube::GenerateMips()
 {
 	assert(m_MipCount > 1);
 
-	CommandPool&  commandPool  = Context::Get().GetImmediateCommandPool();
+	CommandPool commandPool;
+	commandPool.Create(Context::Get().GetGraphicsFamily());
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -503,7 +544,12 @@ void TextureCube::GenerateMips()
 			.layerCount     = 6
 		};
 
-		SetImageLayout(commandBuffer.GetHandle(), m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstRange);
+		commandBuffer.ImageBarrier(m_Image,
+						VK_IMAGE_LAYOUT_UNDEFINED,
+						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+						dstRange,
+						VK_PIPELINE_STAGE_2_NONE,
+						VK_PIPELINE_STAGE_2_BLIT_BIT);
 
 		for (uint32_t face = 0; face < 6; ++face)
 		{
@@ -516,7 +562,12 @@ void TextureCube::GenerateMips()
 			vkCmdBlitImage(commandBuffer.GetHandle(), m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 		}
 
-		SetImageLayout(commandBuffer.GetHandle(), m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstRange);
+		commandBuffer.ImageBarrier(m_Image,
+						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+						VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+						dstRange,
+						VK_PIPELINE_STAGE_2_BLIT_BIT,
+						VK_PIPELINE_STAGE_2_BLIT_BIT);
 
 		mipWidth  = nextWidth;
 		mipHeight = nextHeight;
@@ -531,8 +582,13 @@ void TextureCube::GenerateMips()
 		.layerCount     = 6
 	};
 
-	SetImageLayout(commandBuffer.GetHandle(), m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, allMips);
+	commandBuffer.ImageBarrier(m_Image,
+					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					allMips,
+					VK_PIPELINE_STAGE_2_BLIT_BIT,
+					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 
 	commandBuffer.Flush();
-	commandPool.Reset();
+	commandPool.Destroy();
 }

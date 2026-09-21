@@ -4,6 +4,8 @@
 
 #include "Renderer/RendererTypes.hpp"
 
+#include "FrameData.hpp"
+
 #include <cstdint>
 #include <vector>
 
@@ -20,31 +22,33 @@ public:
 
 	void OnResize(uint32_t width, uint32_t height);
 
-	uint32_t AcquireNextImage(VkSemaphore signalSemaphore);
-	void Present(VkSemaphore waitSemaphore);
+	uint32_t AcquireNextImage(uint32_t frameSlot);
+	void Present(uint32_t frameSlot);
 
-	uint32_t GetWidth()  const { return m_Extent.width;  }
-	uint32_t GetHeight() const { return m_Extent.height; }
+	VkSemaphore GetImageAvailableSemaphore(uint32_t frameSlot)  const { return m_ImageAvailableSemaphores[frameSlot]; }
+	VkSemaphore GetRenderFinishedSemaphore(uint32_t imageIndex) const { return m_RenderFinishedSemaphores[imageIndex]; }
 
-	uint32_t GetImageCount() const { return static_cast<uint32_t>(m_Images.size()); }
-	VkImage GetImage(uint32_t index) const { return m_Images[index].Image; }
+	uint32_t   GetWidth()         const { return m_Extent.width; }
+	uint32_t   GetHeight()        const { return m_Extent.height; }
+	VkExtent2D GetExtent()        const { return m_Extent; }
+	uint32_t   GetImageCount()    const { return static_cast<uint32_t>(m_Images.size()); }
+	Format     GetColorFormat()   const { return m_Format; }
+	VkFormat   GetVkColorFormat() const { return m_ColorFormat; }
+
+	VkImage     GetImage(uint32_t index)     const { return m_Images[index].Image; }
 	VkImageView GetImageView(uint32_t index) const { return m_Images[index].ImageView; }
 
-	Format   GetColorFormat()   const { return m_Format; }
-	VkFormat GetVkColorFormat() const { return m_ColorFormat; }
-	VkExtent2D GetExtent() const {return m_Extent;}
-
-	uint32_t GetCurrentImageIndex() const {return m_CurrentImageIndex;}
-
-	VkImage     GetCurrentImage()     const { assert(m_CurrentImageIndex < m_Images.size()); return m_Images[m_CurrentImageIndex].Image;     }
-	VkImageView GetCurrentImageView() const { assert(m_CurrentImageIndex < m_Images.size()); return m_Images[m_CurrentImageIndex].ImageView; }
+	uint32_t    GetCurrentImageIndex() const { return m_CurrentImageIndex; }
+	VkImage     GetCurrentImage()      const { return m_Images[m_CurrentImageIndex].Image; }
+	VkImageView GetCurrentImageView()  const { return m_Images[m_CurrentImageIndex].ImageView; }
 
 	void RequestResize() { m_NeedsResize = true; }
 private:
 	void CreateSurface();
 	void CreateSwapchain(uint32_t* width, uint32_t* height, VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
 	void CreateImageViews();
-
+	void CreateSemaphores();
+	void DestroySemaphores();
 	void FindImageFormatAndColorSpace();
 private:
 	struct SwapchainImage
@@ -64,7 +68,12 @@ private:
 	VkColorSpaceKHR m_ColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 	VkExtent2D m_Extent{};
 
-	uint32_t m_CurrentImageIndex = UINT32_MAX;    // Index of the current swapchain image.  Can be different from frame index
-
+	uint32_t m_CurrentImageIndex = UINT32_MAX;
 	bool m_NeedsResize = false;
+
+	// One per frame in flight slot
+	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_ImageAvailableSemaphores = {};
+
+	// One per swapchain image
+	std::vector<VkSemaphore> m_RenderFinishedSemaphores;
 };

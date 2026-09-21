@@ -2,8 +2,6 @@
 
 #include "Renderer/Renderer.hpp"
 #include "Renderer/Vulkan/Descriptors.hpp"
-#include "Renderer/Vulkan/DynamicRendering.hpp"
-#include "Renderer/Vulkan/Vulkan.hpp"
 
 #include <glm/glm.hpp>
 
@@ -15,17 +13,13 @@ struct QuadVertex
 
 static constexpr QuadVertex QuadVertices[4] =
 {
-	{ { -0.5f, -0.5f }, { 0.0f, 0.0f } },  // top-left
-	{ {  0.5f, -0.5f }, { 1.0f, 0.0f } },  // top-right
-	{ {  0.5f,  0.5f }, { 1.0f, 1.0f } },  // bottom-right
-	{ { -0.5f,  0.5f }, { 0.0f, 1.0f } },  // bottom-left
+	{ { -0.5f, -0.5f }, { 0.0f, 0.0f } },
+	{ {  0.5f, -0.5f }, { 1.0f, 0.0f } },
+	{ {  0.5f,  0.5f }, { 1.0f, 1.0f } },
+	{ { -0.5f,  0.5f }, { 0.0f, 1.0f } },
 };
 
-static constexpr uint32_t QuadIndices[6] =
-{
-	0, 1, 2,
-	2, 3, 0
-};
+static constexpr uint32_t QuadIndices[6] = { 0, 1, 2, 2, 3, 0 };
 
 struct QuadPushConstants
 {
@@ -44,7 +38,6 @@ void EditorApplication::OnInitialize()
 	Descriptor::Initialize();
 
 	m_VertexBuffer.Create(QuadVertices, sizeof(QuadVertices), VertexBufferUsage::Static);
-
 	m_VertexBuffer.SetLayout(
 	{
 		{ ShaderDataType::Float2, "Position" },
@@ -57,22 +50,17 @@ void EditorApplication::OnInitialize()
 	m_Shader->Load("Assets/Shaders/TexturedQuad.slang");
 	assert(m_Shader->IsValid());
 
-	m_GraphicsState.VertexLayout   = m_VertexBuffer.GetLayout();
-	m_GraphicsState.DepthTest      = false;
-	m_GraphicsState.DepthWrite     = false;
-	m_GraphicsState.CullMode       = CullMode::None;
-	m_GraphicsState.PrimitiveTopology = Topology::Triangle;
+	m_GraphicsState.VertexLayout = m_VertexBuffer.GetLayout();
+	m_GraphicsState.DepthTest    = false;
+	m_GraphicsState.DepthWrite   = false;
+	m_GraphicsState.CullMode     = CullMode::None;
 
 	m_Texture = std::make_shared<Texture2D>();
 	const bool loaded = m_Texture->Load("Assets/Textures/Test.png");
 	assert(loaded && m_Texture->IsValid());
 
 	const VkExtent2D extent = Renderer::GetSwapChain().GetExtent();
-	CreateDepthImage(
-	{
-		.Width  = extent.width,
-		.Height = extent.height,
-	});
+	CreateDepthImage({ .Width = extent.width, .Height = extent.height });
 }
 
 void EditorApplication::CreateDepthImage(const Dimensions& size)
@@ -88,61 +76,43 @@ void EditorApplication::CreateDepthImage(const Dimensions& size)
 
 void EditorApplication::OnUpdate(Timestep /*ts*/)
 {
-	CommandBuffer& cmd  = Renderer::GetCurrentCommandBuffer();
-	SwapChain&     swap = Renderer::GetSwapChain();
+	CommandBuffer& commandBuffer  = Renderer::GetCurrentCommandBuffer();
+	SwapChain&     swapChain = Renderer::GetSwapChain();
 
-	const VkExtent2D extent = swap.GetExtent();
+	const VkExtent2D extent = swapChain.GetExtent();
 
 	if (m_DepthImage.GetWidth() != extent.width || m_DepthImage.GetHeight() != extent.height)
 	{
 		Renderer::WaitForGPU();
-
-		CreateDepthImage(
-		{
-			.Width  = extent.width,
-			.Height = extent.height,
-		});
+		CreateDepthImage({ .Width = extent.width, .Height = extent.height });
 	}
 
 	// ==== Barriers: undefined → attachments ====
 
-	SetImageLayout(
-		cmd.GetHandle(),
-		swap.GetCurrentImage(),
-		VK_IMAGE_ASPECT_COLOR_BIT,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	);
-
-	SetImageLayout(
-		cmd.GetHandle(),
-		m_DepthImage.GetHandle(),
-		VK_IMAGE_ASPECT_DEPTH_BIT,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
-	);
+	commandBuffer.ImageBarrier(swapChain.GetCurrentImage(), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	commandBuffer.ImageBarrier(m_DepthImage.GetHandle(), VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 	// ==== Pass ====
 
-	const AttachmentInfo color
+	const RenderingAttachmentInfo color
 	{
-		.ImageView  = swap.GetCurrentImageView(),
+		.ImageView  = swapChain.GetCurrentImageView(),
 		.LoadOp     = LoadOp::Clear,
 		.StoreOp    = StoreOp::Store,
-		.ClearValue = { .color = { .float32 = { 0.1f, 0.1f, 0.1f, 1.0f } } },
+		.ClearValue = { .Color = { .Float32 = { 0.1f, 0.1f, 0.1f, 1.0f } } },
 		.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 	};
 
-	const AttachmentInfo depth
+	const RenderingAttachmentInfo depth
 	{
 		.ImageView  = m_DepthImage.GetAttachmentView(),
 		.LoadOp     = LoadOp::Clear,
 		.StoreOp    = StoreOp::DontCare,
-		.ClearValue = { .depthStencil = { 1.0f, 0 } },
+		.ClearValue = { .DepthStencil = { 1.0f, 0 } },
 		.Layout     = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 	};
 
-	const RenderPassInfo passInfo
+	const RenderingInfo passInfo
 	{
 		.ColorAttachments = { &color, 1 },
 		.DepthAttachment  = &depth,
@@ -155,42 +125,32 @@ void EditorApplication::OnUpdate(Timestep /*ts*/)
 		},
 	};
 
-	DynamicRendering::BeginRendering(cmd, passInfo);
-
-	m_Shader->Bind(cmd);
-	m_GraphicsState.Apply(cmd, 1);
-
-	const VkDescriptorSet descriptorSet = Descriptor::GetSet();
-	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_Shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
-
-	const VkBuffer     vb     = m_VertexBuffer.GetBuffer();
-	const VkDeviceSize offset = 0;
-	vkCmdBindVertexBuffers(cmd.GetHandle(), 0, 1, &vb, &offset);
-	vkCmdBindIndexBuffer(cmd.GetHandle(), m_IndexBuffer.GetBuffer(), 0, ToVulkan(IndexFormat::UInt32));
-
-	const QuadPushConstants push
+	commandBuffer.BeginRendering(passInfo);
 	{
-		.TextureIndex = m_Texture->GetBindlessIndex(),
-	};
+		DebugLabelScope label(commandBuffer, "Textured Quad", 0xAEC6CFFF);
 
-	const auto& ranges = m_Shader->GetPushConstantRanges();
-	assert(!ranges.empty());
+		m_Shader->Bind(commandBuffer);
+		commandBuffer.SetGraphicsState(m_GraphicsState, 1);
 
-	vkCmdPushConstants(cmd.GetHandle(), m_Shader->GetPipelineLayout(), ranges[0].StageFlags, ranges[0].Offset, sizeof(QuadPushConstants), &push);
+		const VkDescriptorSet descriptorSet = Descriptor::GetSet();
+		vkCmdBindDescriptorSets(commandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_Shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
-	vkCmdDrawIndexed(cmd.GetHandle(), m_IndexBuffer.GetCount(), 1, 0, 0, 0);
+		commandBuffer.BindVertexBuffer(m_VertexBuffer.GetBuffer());
+		commandBuffer.BindIndexBuffer(m_IndexBuffer.GetBuffer(), IndexFormat::UInt32);
 
-	DynamicRendering::EndRendering(cmd);
+		const auto& ranges = m_Shader->GetPushConstantRanges();
+		assert(!ranges.empty());
+
+		const QuadPushConstants push { .TextureIndex = m_Texture->GetBindlessIndex() };
+		commandBuffer.PushConstants(m_Shader->GetPipelineLayout(), ranges[0].StageFlags, push, ranges[0].Offset);
+
+		commandBuffer.DrawIndexed(m_IndexBuffer.GetCount());
+	}
+	commandBuffer.EndRendering();
 
 	// ==== Barrier: color attachment → present ====
 
-	SetImageLayout(
-		cmd.GetHandle(),
-		swap.GetCurrentImage(),
-		VK_IMAGE_ASPECT_COLOR_BIT,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	);
+	commandBuffer.ImageBarrier(swapChain.GetCurrentImage(), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 }
 
 void EditorApplication::OnShutdown()

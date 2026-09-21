@@ -10,16 +10,13 @@ void Renderer::Initialize(SDL_Window* windowHandle)
 	s_SwapChain->Initialize();
 
 	s_FrameData.Initialize();
-	CreateSyncObjects();
 }
 
 void Renderer::Shutdown()
 {
 	WaitForGPU();
 
-	DestroySyncObjects();
 	s_FrameData.Shutdown();
-
 	s_SwapChain.reset();
 
 	Context::Shutdown();
@@ -30,21 +27,33 @@ void Renderer::WaitForGPU()
 	vkDeviceWaitIdle(Context::Get().GetDevice());
 }
 
+CommandBuffer& Renderer::GetComputeCommandBuffer()
+{
+	assert(s_FrameData.HasAsyncCompute());
+
+	FrameContext& frame = GetCurrentFrame();
+
+	if (!frame.ComputeUsed)
+	{
+		frame.ComputeCommandBuffer.Begin();
+		frame.ComputeUsed = true;
+	}
+
+	return frame.ComputeCommandBuffer;
+}
+
 bool Renderer::BeginFrame()
 {
-	const uint32_t frameIndex = GetCurrentFrameIndex();
-	const uint64_t waitValue  = s_FrameSignalValues[frameIndex];
+	const uint32_t frameSlot = s_FrameData.GetFrameSlot();
 
-	if (waitValue != 0)
-		s_FrameTimeline.Wait(waitValue);
+	s_FrameData.WaitForSlot();
 
-	GetCurrentFrame().Reset();
-
-	s_CurrentImageIndex = s_SwapChain->AcquireNextImage(GetImageAvailableSemaphore());
+	s_CurrentImageIndex = s_SwapChain->AcquireNextImage(frameSlot);
 
 	if (s_CurrentImageIndex == UINT32_MAX)
 		return false;
 
+	GetCurrentFrame().Reset(s_FrameData.HasAsyncCompute());
 	GetCurrentFrame().GraphicsCommandBuffer.Begin();
 
 	return true;
@@ -52,95 +61,36 @@ bool Renderer::BeginFrame()
 
 void Renderer::EndFrame()
 {
-	FrameContext& frame = GetCurrentFrame();
+	const uint32_t frameSlot      = s_FrameData.GetFrameSlot();
+	const bool     hasAsyncCompute = s_FrameData.HasAsyncCompute();
+	FrameContext&  frame           = GetCurrentFrame();
 
-	frame.GraphicsCommandBuffer.End();
+	const uint64_t graphicsSignalValue = s_FrameData.NextGraphicsSignalValue();
+	const uint64_t computeSignalValue  = (hasAsyncCompute && frame.ComputeUsed) ? s_FrameData.NextComputeSignalValue() : 0;
 
-	const uint64_t signalValue = s_NextSignalValue++;
-
-	const VkSemaphoreSubmitInfo imageAvailableWait
+	frame.Submit(
 	{
-		.sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-		.semaphore = GetImageAvailableSemaphore(),
-		.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
-	};
+		.GraphicsQueue       = Context::Get().GetGraphicsQueue(),
+		.ComputeQueue        = hasAsyncCompute ? Context::Get().GetComputeQueue() : VK_NULL_HANDLE,
 
-	const VkSemaphoreSubmitInfo signalInfos[]
-	{
-		{
-			.sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-			.semaphore = GetRenderFinishedSemaphore(s_CurrentImageIndex),
-			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
-		},
-		{
-			.sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-			.semaphore = s_FrameTimeline.GetHandle(),
-			.value     = signalValue,
-			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
-		}
-	};
+		.ImageAvailable      = s_SwapChain->GetImageAvailableSemaphore(frameSlot),
+		.RenderFinished      = s_SwapChain->GetRenderFinishedSemaphore(s_CurrentImageIndex),
 
-	const VkCommandBufferSubmitInfo commandBufferInfo
-	{
-		.sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-		.commandBuffer = frame.GraphicsCommandBuffer.GetHandle()
-	};
+		.GraphicsTimeline    = s_FrameData.GetGraphicsTimeline().GetHandle(),
+		.ComputeTimeline     = hasAsyncCompute ? s_FrameData.GetComputeTimeline().GetHandle() : VK_NULL_HANDLE,
 
-	const VkSubmitInfo2 submitInfo
-	{
-		.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-		.waitSemaphoreInfoCount   = 1,
-		.pWaitSemaphoreInfos      = &imageAvailableWait,
-		.commandBufferInfoCount   = 1,
-		.pCommandBufferInfos      = &commandBufferInfo,
-		.signalSemaphoreInfoCount = 2,
-		.pSignalSemaphoreInfos    = signalInfos
-	};
+		.GraphicsSignalValue = graphicsSignalValue,
+		.ComputeSignalValue  = computeSignalValue,
 
-	VK_CHECK(vkQueueSubmit2(Context::Get().GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE));
-
-	s_FrameSignalValues[GetCurrentFrameIndex()] = signalValue;
+		// Cross-queue dependencies are intentionally 0.
+		// The render graph will set these when resources are shared between queues.
+		.ComputeWaitGraphicsValue = 0,
+		.GraphicsWaitComputeValue = 0
+	});
 }
 
 void Renderer::Present()
 {
-	s_SwapChain->Present(GetRenderFinishedSemaphore(s_CurrentImageIndex));
+	s_SwapChain->Present(s_FrameData.GetFrameSlot());
 	s_FrameData.Advance();
-}
-
-void Renderer::CreateSyncObjects()
-{
-	VkDevice device = Context::Get().GetDevice();
-
-	const uint32_t imageCount = s_SwapChain->GetImageCount();
-
-	s_FrameTimeline.Initialize(0);
-	s_FrameSignalValues.fill(0);
-
-	VkSemaphoreCreateInfo semaphoreInfo{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-
-	s_ImageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-	s_RenderFinishedSemaphores.resize(imageCount);
-
-	for (VkSemaphore& semaphore : s_ImageAvailableSemaphores)
-		VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore));
-
-	for (VkSemaphore& semaphore : s_RenderFinishedSemaphores)
-		VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore));
-}
-
-void Renderer::DestroySyncObjects()
-{
-	VkDevice device = Context::Get().GetDevice();
-
-	s_FrameTimeline.Shutdown();
-
-	for (VkSemaphore semaphore : s_ImageAvailableSemaphores)
-		vkDestroySemaphore(device, semaphore, nullptr);
-
-	for (VkSemaphore semaphore : s_RenderFinishedSemaphores)
-		vkDestroySemaphore(device, semaphore, nullptr);
-
-	s_ImageAvailableSemaphores.clear();
-	s_RenderFinishedSemaphores.clear();
 }

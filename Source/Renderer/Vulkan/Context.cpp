@@ -144,9 +144,6 @@ void Context::Initialize()
 	s_Instance->CreateLogicalDevice();
 
 	Allocator::Initialize();
-
-	s_Instance->m_ImmediateCommandPool = std::make_unique<CommandPool>();
-	s_Instance->m_ImmediateCommandPool->Create(s_Instance->m_GraphicsFamily);
 }
 
 void Context::Shutdown()
@@ -157,8 +154,6 @@ void Context::Shutdown()
 	if (s_Instance->m_LogicalDevice)
 	{
 		vkDeviceWaitIdle(s_Instance->m_LogicalDevice);
-
-		s_Instance->m_ImmediateCommandPool.reset();
 
 		Allocator::Shutdown();
 

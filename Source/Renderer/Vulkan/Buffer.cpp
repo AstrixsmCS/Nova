@@ -1,6 +1,7 @@
 #include "Buffer.hpp"
 
 #include "Context.hpp"
+#include "CommandBuffer.hpp"
 
 #include <vma/vk_mem_alloc.h>
 
@@ -84,7 +85,8 @@ void VertexBuffer::Create(const void* data, uint64_t size, VertexBufferUsage usa
 
 	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &bufferInfo, &allocationInfo, &m_Buffer, &m_Allocation, nullptr));
 
-	CommandPool& commandPool = Context::Get().GetImmediateCommandPool();
+	CommandPool commandPool;
+	commandPool.Create(Context::Get().GetGraphicsFamily());
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -98,7 +100,7 @@ void VertexBuffer::Create(const void* data, uint64_t size, VertexBufferUsage usa
 	vkCmdCopyBuffer(commandBuffer.GetHandle(), stagingBuffer, m_Buffer, 1, &copyRegion);
 
 	commandBuffer.Flush();
-	commandPool.Reset();
+	commandPool.Destroy();
 
 	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
 }
@@ -207,7 +209,8 @@ void IndexBuffer::Create(const void* data, uint64_t size)
 
 	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &bufferInfo, &allocationInfo, &m_Buffer, &m_Allocation, nullptr));
 
-	CommandPool& commandPool = Context::Get().GetImmediateCommandPool();
+	CommandPool commandPool;
+	commandPool.Create(Context::Get().GetGraphicsFamily());
 	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
 	commandBuffer.Begin(true);
 
@@ -221,7 +224,7 @@ void IndexBuffer::Create(const void* data, uint64_t size)
 	vkCmdCopyBuffer(commandBuffer.GetHandle(), stagingBuffer, m_Buffer, 1, &copyRegion);
 
 	commandBuffer.Flush();
-	commandPool.Reset();
+	commandPool.Destroy();
 
 	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
 }

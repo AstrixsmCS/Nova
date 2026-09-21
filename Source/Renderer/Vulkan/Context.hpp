@@ -2,8 +2,6 @@
 
 #include "Vulkan.hpp"
 
-#include "CommandBuffer.hpp"
-
 #include <unordered_set>
 
 struct SDL_Window;
@@ -24,8 +22,7 @@ public:
 	VkQueue GetComputeQueue() const { return m_ComputeQueue; }
 	uint32_t GetComputeFamily() const { return m_ComputeFamily; }
 
-	CommandPool& GetImmediateCommandPool() { return *m_ImmediateCommandPool; }
-	const CommandPool& GetImmediateCommandPool() const { return *m_ImmediateCommandPool; }
+	bool HasDedicatedComputeQueue() const { return m_ComputeFamily != m_GraphicsFamily; }
 
 	const VkPhysicalDeviceProperties& GetPhysicalDeviceProperties() const { return m_PhysicalDeviceProperties; }
 	const VkPhysicalDeviceLimits& GetPhysicalDeviceLimits() const { return m_PhysicalDeviceProperties.limits; }
@@ -50,8 +47,6 @@ private:
 	uint32_t m_GraphicsFamily = UINT32_MAX;
 	VkQueue m_ComputeQueue = VK_NULL_HANDLE;
 	uint32_t m_ComputeFamily = UINT32_MAX;
-
-	std::unique_ptr<CommandPool> m_ImmediateCommandPool = nullptr;
 
 	std::unordered_set<std::string> m_SupportedExtensions;
 

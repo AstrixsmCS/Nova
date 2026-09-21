@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Vulkan/Buffer.hpp"
-#include "Vulkan/GraphicsState.hpp"
 #include "Material.hpp"
 #include "Renderer.hpp"
 
