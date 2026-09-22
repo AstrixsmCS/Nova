@@ -216,8 +216,9 @@ void Descriptor::WriteSampler(uint32_t index, VkSampler sampler)
 	vkUpdateDescriptorSets(Context::Get().GetDevice(), 1, &write, 0, nullptr);
 }
 
-uint32_t Descriptor::RegisterTexture(VkImageView imageView, VkImageLayout layout)
+uint32_t Descriptor::AllocateSampledImage(VkImageView imageView, VkImageLayout layout)
 {
+	assert(s_Set != VK_NULL_HANDLE);
 	assert(imageView != VK_NULL_HANDLE);
 	assert(!s_FreeTextureIndices.empty());
 
@@ -248,8 +249,9 @@ uint32_t Descriptor::RegisterTexture(VkImageView imageView, VkImageLayout layout
 	return index;
 }
 
-uint32_t Descriptor::RegisterStorageImage(VkImageView imageView)
+uint32_t Descriptor::AllocateStorageImage(VkImageView imageView)
 {
+	assert(s_Set != VK_NULL_HANDLE);
 	assert(imageView != VK_NULL_HANDLE);
 	assert(!s_FreeStorageImageIndices.empty());
 
@@ -280,22 +282,37 @@ uint32_t Descriptor::RegisterStorageImage(VkImageView imageView)
 	return index;
 }
 
-void Descriptor::UnregisterTexture(uint32_t index)
+void Descriptor::ReleaseSampledImage(uint32_t index)
 {
-	if (index == INVALID_INDEX)
-		return;
-
-	assert(index < MAX_TEXTURES);
+	assert(s_Set != VK_NULL_HANDLE && "Texture destroyed after Descriptor::Shutdown()");
+	assert(index != NULL_TEXTURE && index < MAX_TEXTURES);
 
 	s_FreeTextureIndices.push_back(index);
 }
 
-void Descriptor::UnregisterStorageImage(uint32_t index)
+void Descriptor::ReleaseStorageImage(uint32_t index)
 {
-	if (index == INVALID_INDEX)
-		return;
-
+	assert(s_Set != VK_NULL_HANDLE && "Texture destroyed after Descriptor::Shutdown()");
 	assert(index < MAX_STORAGE_IMAGES);
 
 	s_FreeStorageImageIndices.push_back(index);
+}
+
+BindlessSlot::BindlessSlot(BindlessType type, VkImageView imageView, VkImageLayout layout)
+	: m_Type(type)
+{
+	m_Index = (type == BindlessType::SampledImage) ? Descriptor::AllocateSampledImage(imageView, layout) : Descriptor::AllocateStorageImage(imageView);
+}
+
+void BindlessSlot::Reset()
+{
+	if (m_Index == Descriptor::INVALID_INDEX)
+		return;
+
+	if (m_Type == BindlessType::SampledImage)
+		Descriptor::ReleaseSampledImage(m_Index);
+	else
+		Descriptor::ReleaseStorageImage(m_Index);
+
+	m_Index = Descriptor::INVALID_INDEX;
 }

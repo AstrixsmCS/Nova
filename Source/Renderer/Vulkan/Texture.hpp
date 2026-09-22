@@ -5,6 +5,10 @@
 #include "Renderer/RendererTypes.hpp"
 #include "Asset/Asset.hpp"
 
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -241,12 +245,10 @@ public:
 	VkImageView GetView()   const { return m_DefaultView; }
 	VkImage     GetHandle() const { return m_Image.Image; }
 
-	uint32_t GetBindlessIndex() const { return m_BindlessIndex; }
-	uint32_t GetStorageIndex()  const { return m_StorageIndex;  }
+	uint32_t GetBindlessIndex() const { return m_SampledSlot.GetIndex(); }
+	uint32_t GetStorageIndex()  const { return m_StorageSlot.GetIndex(); }
 
-	VkImageView GetMipLayerView(uint32_t mip, uint32_t layer = 0);
-	VkImageView GetMipView(uint32_t mip);
-	uint32_t    GetMipStorageIndex(uint32_t mip);
+	VkImageView GetAttachmentView(uint32_t mip = 0, uint32_t layer = 0);
 
 	static AssetType GetStaticType()        { return AssetType::Texture; }
 	AssetType GetAssetType() const override { return AssetType::Texture; }
@@ -261,9 +263,6 @@ private:
 	VkImageView m_DefaultView = VK_NULL_HANDLE;
 	VkImageView m_StorageView = VK_NULL_HANDLE;
 
-	uint32_t m_BindlessIndex = Descriptor::INVALID_INDEX;
-	uint32_t m_StorageIndex  = Descriptor::INVALID_INDEX;
-
-	VkImageView m_MipViews[MAX_MIP_LEVELS]         = {};
-	uint32_t    m_MipStorageIndices[MAX_MIP_LEVELS] = {};
+	BindlessSlot m_SampledSlot; // references m_DefaultView
+	BindlessSlot m_StorageSlot; // references m_StorageView
 };

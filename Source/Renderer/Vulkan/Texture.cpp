@@ -79,11 +79,19 @@ VkImageView VulkanImage::GetOrCreateMipLayerView(VkDevice device, uint32_t mip, 
 	if (MipLayerViews[mip][layer] != VK_NULL_HANDLE)
 		return MipLayerViews[mip][layer];
 
+	// Attachment views of depth/stencil formats cover both aspects so the view can be
+	// bound as the depth attachment, the stencil attachment, or both.
+	VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+	if (IsDepth)
+		aspect = VK_IMAGE_ASPECT_DEPTH_BIT | (IsStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+	else if (IsStencil)
+		aspect = VK_IMAGE_ASPECT_STENCIL_BIT;
+
 	MipLayerViews[mip][layer] = CreateView(
 		device,
 		VK_IMAGE_VIEW_TYPE_2D,
 		Format,
-		IsDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+		aspect,
 		mip,   1,
 		layer, 1,
 		{},
@@ -241,10 +249,10 @@ void Texture::Create(const TextureSpecification& specification)
 	}
 
 	if (usageFlags & VK_IMAGE_USAGE_SAMPLED_BIT)
-		m_BindlessIndex = Descriptor::RegisterTexture(m_DefaultView);
+		m_SampledSlot = BindlessSlot(BindlessType::SampledImage, m_DefaultView);
 
 	if (usageFlags & VK_IMAGE_USAGE_STORAGE_BIT)
-		m_StorageIndex = Descriptor::RegisterStorageImage(m_StorageView);
+		m_StorageSlot = BindlessSlot(BindlessType::StorageImage, m_StorageView);
 
 	if (specification.Data)
 	{
@@ -256,8 +264,7 @@ void Texture::Create(const TextureSpecification& specification)
 	}
 }
 
-void Texture::CreateView(const Texture& source, const TextureViewSpecification& viewSpecification,
-						 const std::string& debugName)
+void Texture::CreateView(const Texture& source, const TextureViewSpecification& viewSpecification, const std::string& debugName)
 {
 	assert(source.IsValid());
 
@@ -266,13 +273,15 @@ void Texture::CreateView(const Texture& source, const TextureViewSpecification& 
 	m_Image            = source.m_Image;
 	m_Image.Allocation = VK_NULL_HANDLE;
 	m_OwnsImage        = false;
-	m_Specification    = source.m_Specification;
+
+	// Cached attachment views belong to the source texture. This texture creates and destroys its own.
+	for (auto& mipRow : m_Image.MipLayerViews)
+		std::ranges::fill(mipRow, VK_NULL_HANDLE);
+	m_Specification = source.m_Specification;
 
 	VkDevice device = Context::Get().GetDevice();
 
-	const uint32_t arrayLayers = (viewSpecification.Type == TextureType::TextureCube)
-									 ? viewSpecification.NumLayers * 6
-									 : viewSpecification.NumLayers;
+	const uint32_t arrayLayers = (viewSpecification.Type == TextureType::TextureCube) ? viewSpecification.NumLayers * 6 : viewSpecification.NumLayers;
 
 	VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
 	switch (viewSpecification.Type)
@@ -294,35 +303,35 @@ void Texture::CreateView(const Texture& source, const TextureViewSpecification& 
 		case TextureAspect::Depth:   aspect = VK_IMAGE_ASPECT_DEPTH_BIT;   break;
 		case TextureAspect::Stencil: aspect = VK_IMAGE_ASPECT_STENCIL_BIT; break;
 		default:
-			if (m_Image.IsDepth)   aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-			if (m_Image.IsStencil) aspect = VK_IMAGE_ASPECT_STENCIL_BIT;
+			if (m_Image.IsDepth)        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+			else if (m_Image.IsStencil) aspect = VK_IMAGE_ASPECT_STENCIL_BIT;
 			break;
 	}
 
-	// Default view — uses the view spec's component mapping
+	// Default view uses the view spec's component mapping
 	m_DefaultView = m_Image.CreateView(
 		device, viewType, m_Image.Format, aspect,
 		viewSpecification.MipLevel, viewSpecification.NumMipLevels,
-		viewSpecification.Layer,    viewSpecification.NumLayers,
+		viewSpecification.Layer,    arrayLayers,
 		viewSpecification.Components,
 		debugName.empty() ? nullptr : debugName.c_str());
 
-	// Storage view — always identity swizzle
+	// Storage view always identity swizzle
 	if (m_Image.UsageFlags & VK_IMAGE_USAGE_STORAGE_BIT)
 	{
 		m_StorageView = m_Image.CreateView(
 			device, viewType, m_Image.Format, aspect,
 			viewSpecification.MipLevel, viewSpecification.NumMipLevels,
-			viewSpecification.Layer,    viewSpecification.NumLayers,
+			viewSpecification.Layer,    arrayLayers,
 			{},
 			debugName.empty() ? nullptr : (debugName + " storage").c_str());
 	}
 
 	if (m_Image.UsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT)
-		m_BindlessIndex = Descriptor::RegisterTexture(m_DefaultView);
+		m_SampledSlot = BindlessSlot(BindlessType::SampledImage, m_DefaultView);
 
 	if (m_Image.UsageFlags & VK_IMAGE_USAGE_STORAGE_BIT)
-		m_StorageIndex = Descriptor::RegisterStorageImage(m_StorageView);
+		m_StorageSlot = BindlessSlot(BindlessType::StorageImage, m_StorageView);
 }
 
 bool Texture::Load(const std::filesystem::path& path, bool sRGB)
@@ -359,36 +368,8 @@ void Texture::Destroy()
 
 	VkDevice device = Context::Get().GetDevice();
 
-	for (uint32_t mip = 0; mip < MAX_MIP_LEVELS; ++mip)
-	{
-		if (m_MipStorageIndices[mip] != 0 &&
-			m_MipStorageIndices[mip] != Descriptor::INVALID_INDEX)
-		{
-			Descriptor::UnregisterStorageImage(m_MipStorageIndices[mip]);
-			m_MipStorageIndices[mip] = 0;
-		}
-	}
-
-	if (m_StorageIndex != Descriptor::INVALID_INDEX)
-	{
-		Descriptor::UnregisterStorageImage(m_StorageIndex);
-		m_StorageIndex = Descriptor::INVALID_INDEX;
-	}
-
-	if (m_BindlessIndex != Descriptor::INVALID_INDEX)
-	{
-		Descriptor::UnregisterTexture(m_BindlessIndex);
-		m_BindlessIndex = Descriptor::INVALID_INDEX;
-	}
-
-	for (uint32_t mip = 0; mip < MAX_MIP_LEVELS; ++mip)
-	{
-		if (m_MipViews[mip] != VK_NULL_HANDLE)
-		{
-			vkDestroyImageView(device, m_MipViews[mip], nullptr);
-			m_MipViews[mip] = VK_NULL_HANDLE;
-		}
-	}
+	m_StorageSlot.Reset();
+	m_SampledSlot.Reset();
 
 	for (uint32_t mip = 0; mip < MAX_MIP_LEVELS; ++mip)
 		for (uint32_t layer = 0; layer < MAX_CUBE_FACES; ++layer)
@@ -578,48 +559,15 @@ void Texture::GenerateMips()
 	});
 }
 
-// ==== Per-mip / per-layer views ====
+// ==== Attachment views ====
 
-VkImageView Texture::GetMipLayerView(uint32_t mip, uint32_t layer)
+VkImageView Texture::GetAttachmentView(uint32_t mip, uint32_t layer)
 {
+	assert(IsAttachment());
 	assert(mip   < m_Image.MipLevels   && mip   < MAX_MIP_LEVELS);
 	assert(layer < m_Image.ArrayLayers && layer < MAX_CUBE_FACES);
 
-	const std::string name = m_Specification.DebugName.empty() ? "" : std::format("{} mip {} layer {}", m_Specification.DebugName, mip, layer);
+	const std::string name = m_Specification.DebugName.empty() ? std::string{} : std::format("{} attachment mip {} layer {}", m_Specification.DebugName, mip, layer);
 
 	return m_Image.GetOrCreateMipLayerView(Context::Get().GetDevice(), mip, layer, name.empty() ? nullptr : name.c_str());
-}
-
-VkImageView Texture::GetMipView(uint32_t mip)
-{
-	assert(mip < m_Image.MipLevels && mip < MAX_MIP_LEVELS);
-
-	if (m_MipViews[mip] != VK_NULL_HANDLE)
-		return m_MipViews[mip];
-
-	const std::string name = m_Specification.DebugName.empty() ? "" : std::format("{} mip {}", m_Specification.DebugName, mip);
-
-	m_MipViews[mip] = m_Image.CreateView(
-		Context::Get().GetDevice(),
-		VK_IMAGE_VIEW_TYPE_2D_ARRAY,
-		m_Image.Format,
-		VK_IMAGE_ASPECT_COLOR_BIT,
-		mip, 1,
-		0,   m_Image.ArrayLayers,
-		{},
-		name.empty() ? nullptr : name.c_str());
-
-	return m_MipViews[mip];
-}
-
-uint32_t Texture::GetMipStorageIndex(uint32_t mip)
-{
-	assert(mip < m_Image.MipLevels && mip < MAX_MIP_LEVELS);
-
-	if (m_MipStorageIndices[mip] != 0 && m_MipStorageIndices[mip] != Descriptor::INVALID_INDEX)
-		return m_MipStorageIndices[mip];
-
-	const uint32_t index = Descriptor::RegisterStorageImage(GetMipView(mip));
-	m_MipStorageIndices[mip] = index;
-	return index;
 }
