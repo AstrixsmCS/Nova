@@ -2,6 +2,8 @@
 
 #include "Allocator.hpp"
 
+#include "UploadContext.hpp"
+
 #include <SDL3/SDL_vulkan.h>
 
 #include <cassert>
@@ -143,7 +145,27 @@ void Context::Initialize()
 	s_Instance->PickPhysicalDevice();
 	s_Instance->CreateLogicalDevice();
 
+	{
+		const VkCommandPoolCreateInfo poolInfo
+		{
+			.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+			.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+			.queueFamilyIndex = s_Instance->m_GraphicsFamily
+		};
+
+		VK_CHECK(vkCreateCommandPool(s_Instance->m_LogicalDevice, &poolInfo, nullptr, &s_Instance->m_ImmediatePool));
+
+		const VkFenceCreateInfo fenceInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
+		};
+
+		VK_CHECK(vkCreateFence(s_Instance->m_LogicalDevice, &fenceInfo, nullptr, &s_Instance->m_ImmediateFence));
+	}
+
 	Allocator::Initialize();
+
+	UploadContext::Initialize();
 }
 
 void Context::Shutdown()
@@ -155,17 +177,25 @@ void Context::Shutdown()
 	{
 		vkDeviceWaitIdle(s_Instance->m_LogicalDevice);
 
+		UploadContext::Shutdown();
+
 		Allocator::Shutdown();
+
+		vkDestroyCommandPool(s_Instance->m_LogicalDevice, s_Instance->m_ImmediatePool, nullptr);
+		vkDestroyFence(s_Instance->m_LogicalDevice, s_Instance->m_ImmediateFence, nullptr);
+
+		s_Instance->m_ImmediatePool  = VK_NULL_HANDLE;
+		s_Instance->m_ImmediateFence = VK_NULL_HANDLE;
 
 		vkDestroyDevice(s_Instance->m_LogicalDevice, nullptr);
 
 		s_Instance->m_LogicalDevice = VK_NULL_HANDLE;
 
 		s_Instance->m_GraphicsQueue = VK_NULL_HANDLE;
-		s_Instance->m_ComputeQueue = VK_NULL_HANDLE;
+		s_Instance->m_ComputeQueue  = VK_NULL_HANDLE;
 
 		s_Instance->m_GraphicsFamily = UINT32_MAX;
-		s_Instance->m_ComputeFamily = UINT32_MAX;
+		s_Instance->m_ComputeFamily  = UINT32_MAX;
 	}
 
 	if (s_Instance->m_DebugMessenger)
@@ -590,4 +620,55 @@ void Context::CreateLogicalDevice()
 bool Context::IsExtensionSupported(const std::string& extensionName) const
 {
 	return m_SupportedExtensions.find(extensionName) != m_SupportedExtensions.end();
+}
+
+// === Immediate Submissions ===
+
+void Context::ImmediateSubmit(std::function<void(VkCommandBuffer)>&& fn)
+{
+	assert(m_ImmediatePool  != VK_NULL_HANDLE);
+	assert(m_ImmediateFence != VK_NULL_HANDLE);
+
+	VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+
+	const VkCommandBufferAllocateInfo allocInfo
+	{
+		.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool        = m_ImmediatePool,
+		.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.commandBufferCount = 1
+	};
+
+	VK_CHECK(vkAllocateCommandBuffers(m_LogicalDevice, &allocInfo, &commandBuffer));
+
+	const VkCommandBufferBeginInfo beginInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+	};
+
+	VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+
+	fn(commandBuffer);
+
+	VK_CHECK(vkEndCommandBuffer(commandBuffer));
+
+	const VkCommandBufferSubmitInfo cmdInfo
+	{
+		.sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+		.commandBuffer = commandBuffer
+	};
+
+	const VkSubmitInfo2 submitInfo
+	{
+		.sType                  = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+		.commandBufferInfoCount = 1,
+		.pCommandBufferInfos    = &cmdInfo
+	};
+
+	VK_CHECK(vkResetFences(m_LogicalDevice, 1, &m_ImmediateFence));
+	VK_CHECK(vkQueueSubmit2(m_GraphicsQueue, 1, &submitInfo, m_ImmediateFence));
+	VK_CHECK(vkWaitForFences(m_LogicalDevice, 1, &m_ImmediateFence, VK_TRUE, UINT64_MAX));
+
+	vkFreeCommandBuffers(m_LogicalDevice, m_ImmediatePool, 1, &commandBuffer);
 }

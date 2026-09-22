@@ -26,37 +26,29 @@ struct FrameSubmitInfo
 
 	// Optional cross-queue dependencies set by the render graph.
 	// 0 means no dependency in that direction.
-	uint64_t ComputeWaitGraphicsValue  = 0;
-	uint64_t GraphicsWaitComputeValue  = 0;
+	uint64_t ComputeWaitGraphicsValue = 0;
+	uint64_t GraphicsWaitComputeValue = 0;
 };
 
 struct FrameContext
 {
-	// Graphics
-	CommandPool   GraphicsCommandPool;
-	CommandBuffer GraphicsCommandBuffer;
-
-	// Async compute
-	CommandPool   ComputeCommandPool;
-	CommandBuffer ComputeCommandBuffer;
-
-	bool ComputeUsed = false;
+	CommandPool GraphicsCommandPool;
+	CommandPool ComputeCommandPool;
 
 	uint64_t GraphicsSignalValue = 0;
 	uint64_t ComputeSignalValue  = 0;
 
-	// Additional command buffers recorded during the frame.
-	// The render graph will populate this before Submit() is called.
-	std::vector<VkCommandBuffer> CommandBuffers;
+	bool HasComputeWork() const { return ComputeCommandPool.GetAcquiredCount() > 0; }
 
-	FrameContext()
+	CommandBuffer& AcquireCommandBuffer(bool dedicatedCompute = false)
 	{
-		CommandBuffers.reserve(16);
-	}
+		if (dedicatedCompute)
+		{
+			assert(ComputeCommandPool.GetHandle() != VK_NULL_HANDLE && "No compute pool — async compute not available.");
+			return ComputeCommandPool.Acquire();
+		}
 
-	void AddCommandBuffer(VkCommandBuffer cmd)
-	{
-		CommandBuffers.push_back(cmd);
+		return GraphicsCommandPool.Acquire();
 	}
 
 	void Submit(const FrameSubmitInfo& info)
@@ -67,25 +59,25 @@ struct FrameContext
 		assert(info.GraphicsTimeline != VK_NULL_HANDLE);
 		assert(info.GraphicsSignalValue > 0);
 
-		if (ComputeUsed)
+		if (HasComputeWork())
 			SubmitCompute(info);
 
 		SubmitGraphics(info);
 
 		GraphicsSignalValue = info.GraphicsSignalValue;
-		ComputeSignalValue  = ComputeUsed ? info.ComputeSignalValue : 0;
+		ComputeSignalValue  = HasComputeWork() ? info.ComputeSignalValue : 0;
 	}
 
 	void Reset(bool hasAsyncCompute)
 	{
 		GraphicsCommandPool.Reset();
-		CommandBuffers.clear();
-		m_SubmitInfos.clear();
+		m_GraphicsSubmitInfos.clear();
 
 		if (hasAsyncCompute)
+		{
 			ComputeCommandPool.Reset();
-
-		ComputeUsed = false;
+			m_ComputeSubmitInfos.clear();
+		}
 	}
 
 private:
@@ -95,13 +87,18 @@ private:
 		assert(info.ComputeTimeline != VK_NULL_HANDLE);
 		assert(info.ComputeSignalValue > 0);
 
-		ComputeCommandBuffer.End();
+		m_ComputeSubmitInfos.clear();
 
-		const VkCommandBufferSubmitInfo cmdInfo
+		for (CommandBuffer& commandBuffer : ComputeCommandPool.GetAcquiredCommandBuffers())
 		{
-			.sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-			.commandBuffer = ComputeCommandBuffer.GetHandle()
-		};
+			commandBuffer.End();
+
+			m_ComputeSubmitInfos.push_back(
+			{
+				.sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+				.commandBuffer = commandBuffer.GetHandle()
+			});
+		}
 
 		VkSemaphoreSubmitInfo waits[1];
 		uint32_t waitCount = 0;
@@ -130,8 +127,8 @@ private:
 			.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
 			.waitSemaphoreInfoCount   = waitCount,
 			.pWaitSemaphoreInfos      = waitCount > 0 ? waits : nullptr,
-			.commandBufferInfoCount   = 1,
-			.pCommandBufferInfos      = &cmdInfo,
+			.commandBufferInfoCount   = static_cast<uint32_t>(m_ComputeSubmitInfos.size()),
+			.pCommandBufferInfos      = m_ComputeSubmitInfos.data(),
 			.signalSemaphoreInfoCount = 1,
 			.pSignalSemaphoreInfos    = &signal
 		};
@@ -141,22 +138,16 @@ private:
 
 	void SubmitGraphics(const FrameSubmitInfo& info)
 	{
-		GraphicsCommandBuffer.End();
+		m_GraphicsSubmitInfos.clear();
 
-		m_SubmitInfos.clear();
-
-		m_SubmitInfos.push_back(
+		for (CommandBuffer& commandBuffer : GraphicsCommandPool.GetAcquiredCommandBuffers())
 		{
-			.sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-			.commandBuffer = GraphicsCommandBuffer.GetHandle()
-		});
+			commandBuffer.End();
 
-		for (VkCommandBuffer cmd : CommandBuffers)
-		{
-			m_SubmitInfos.push_back(
+			m_GraphicsSubmitInfos.push_back(
 			{
 				.sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-				.commandBuffer = cmd
+				.commandBuffer = commandBuffer.GetHandle()
 			});
 		}
 
@@ -170,7 +161,7 @@ private:
 			.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
 		};
 
-		if (ComputeUsed && info.GraphicsWaitComputeValue > 0)
+		if (HasComputeWork() && info.GraphicsWaitComputeValue > 0)
 		{
 			waits[waitCount++] =
 			{
@@ -201,8 +192,8 @@ private:
 			.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
 			.waitSemaphoreInfoCount   = waitCount,
 			.pWaitSemaphoreInfos      = waits,
-			.commandBufferInfoCount   = static_cast<uint32_t>(m_SubmitInfos.size()),
-			.pCommandBufferInfos      = m_SubmitInfos.data(),
+			.commandBufferInfoCount   = static_cast<uint32_t>(m_GraphicsSubmitInfos.size()),
+			.pCommandBufferInfos      = m_GraphicsSubmitInfos.data(),
 			.signalSemaphoreInfoCount = 2,
 			.pSignalSemaphoreInfos    = signals
 		};
@@ -210,7 +201,8 @@ private:
 		VK_CHECK(vkQueueSubmit2(info.GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
 	}
 
-	std::vector<VkCommandBufferSubmitInfo> m_SubmitInfos;
+	std::vector<VkCommandBufferSubmitInfo> m_GraphicsSubmitInfos;
+	std::vector<VkCommandBufferSubmitInfo> m_ComputeSubmitInfos;
 };
 
 class FrameData
@@ -226,13 +218,9 @@ public:
 		for (auto& frame : m_Frames)
 		{
 			frame.GraphicsCommandPool.Create(Context::Get().GetGraphicsFamily());
-			frame.GraphicsCommandBuffer = frame.GraphicsCommandPool.AllocateCommandBuffer();
 
 			if (m_HasAsyncCompute)
-			{
 				frame.ComputeCommandPool.Create(Context::Get().GetComputeFamily());
-				frame.ComputeCommandBuffer = frame.ComputeCommandPool.AllocateCommandBuffer();
-			}
 		}
 
 		m_GraphicsTimeline.Initialize(0);
@@ -251,14 +239,9 @@ public:
 		for (auto& frame : m_Frames)
 		{
 			frame.GraphicsCommandPool.Destroy();
-			frame.GraphicsCommandBuffer = {};
-			frame.CommandBuffers.clear();
 
 			if (m_HasAsyncCompute)
-			{
 				frame.ComputeCommandPool.Destroy();
-				frame.ComputeCommandBuffer = {};
-			}
 		}
 
 		m_FrameIndex              = 0;

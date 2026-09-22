@@ -1,10 +1,13 @@
 #include "Renderer.hpp"
-
 #include "Vulkan/Context.hpp"
+
+#include "Vulkan/Descriptors.hpp"
 
 void Renderer::Initialize(SDL_Window* windowHandle)
 {
 	Context::Initialize();
+
+	Descriptor::Initialize();
 
 	s_SwapChain = std::make_unique<SwapChain>(windowHandle);
 	s_SwapChain->Initialize();
@@ -19,6 +22,8 @@ void Renderer::Shutdown()
 	s_FrameData.Shutdown();
 	s_SwapChain.reset();
 
+	Descriptor::Shutdown();
+
 	Context::Shutdown();
 }
 
@@ -27,19 +32,14 @@ void Renderer::WaitForGPU()
 	vkDeviceWaitIdle(Context::Get().GetDevice());
 }
 
-CommandBuffer& Renderer::GetComputeCommandBuffer()
+CommandBuffer& Renderer::AcquireCommandBuffer(bool dedicatedCompute)
 {
-	assert(s_FrameData.HasAsyncCompute());
+	assert(!dedicatedCompute || s_FrameData.HasAsyncCompute());
 
-	FrameContext& frame = GetCurrentFrame();
+	CommandBuffer& commandBuffer = GetCurrentFrame().AcquireCommandBuffer(dedicatedCompute);
+	commandBuffer.Begin();
 
-	if (!frame.ComputeUsed)
-	{
-		frame.ComputeCommandBuffer.Begin();
-		frame.ComputeUsed = true;
-	}
-
-	return frame.ComputeCommandBuffer;
+	return commandBuffer;
 }
 
 bool Renderer::BeginFrame()
@@ -54,19 +54,18 @@ bool Renderer::BeginFrame()
 		return false;
 
 	GetCurrentFrame().Reset(s_FrameData.HasAsyncCompute());
-	GetCurrentFrame().GraphicsCommandBuffer.Begin();
 
 	return true;
 }
 
 void Renderer::EndFrame()
 {
-	const uint32_t frameSlot      = s_FrameData.GetFrameSlot();
+	const uint32_t frameSlot       = s_FrameData.GetFrameSlot();
 	const bool     hasAsyncCompute = s_FrameData.HasAsyncCompute();
 	FrameContext&  frame           = GetCurrentFrame();
 
 	const uint64_t graphicsSignalValue = s_FrameData.NextGraphicsSignalValue();
-	const uint64_t computeSignalValue  = (hasAsyncCompute && frame.ComputeUsed) ? s_FrameData.NextComputeSignalValue() : 0;
+	const uint64_t computeSignalValue  = (hasAsyncCompute && frame.HasComputeWork()) ? s_FrameData.NextComputeSignalValue() : 0;
 
 	frame.Submit(
 	{
@@ -85,7 +84,7 @@ void Renderer::EndFrame()
 		// Cross-queue dependencies are intentionally 0.
 		// The render graph will set these when resources are shared between queues.
 		.ComputeWaitGraphicsValue = 0,
-		.GraphicsWaitComputeValue = 0
+		.GraphicsWaitComputeValue = hasAsyncCompute && frame.HasComputeWork() ? computeSignalValue : 0
 	});
 }
 

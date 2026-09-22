@@ -3,6 +3,7 @@
 #include "Vulkan.hpp"
 
 #include <unordered_set>
+#include <functional>
 
 struct SDL_Window;
 
@@ -28,6 +29,8 @@ public:
 	const VkPhysicalDeviceLimits& GetPhysicalDeviceLimits() const { return m_PhysicalDeviceProperties.limits; }
 
 	bool IsExtensionSupported(const std::string& extensionName) const;
+
+	void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& fn);
 private:
 	void CreateInstance();
 	void SetupDebugMessenger();
@@ -47,6 +50,9 @@ private:
 	uint32_t m_GraphicsFamily = UINT32_MAX;
 	VkQueue m_ComputeQueue = VK_NULL_HANDLE;
 	uint32_t m_ComputeFamily = UINT32_MAX;
+
+	VkCommandPool m_ImmediatePool  = VK_NULL_HANDLE;
+	VkFence       m_ImmediateFence = VK_NULL_HANDLE;
 
 	std::unordered_set<std::string> m_SupportedExtensions;
 

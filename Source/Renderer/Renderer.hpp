@@ -19,9 +19,8 @@ public:
 	static SwapChain&     GetSwapChain()           { return *s_SwapChain; }
 	static FrameContext&  GetCurrentFrame()         { return s_FrameData.Current(); }
 	static FrameContext&  GetPreviousFrame()        { return s_FrameData.Previous(); }
-	static CommandBuffer& GetCurrentCommandBuffer() { return GetCurrentFrame().GraphicsCommandBuffer; }
 
-	static CommandBuffer& GetComputeCommandBuffer();
+	static CommandBuffer& AcquireCommandBuffer(bool dedicatedCompute = false);
 
 	static bool HasAsyncCompute() { return s_FrameData.HasAsyncCompute(); }
 

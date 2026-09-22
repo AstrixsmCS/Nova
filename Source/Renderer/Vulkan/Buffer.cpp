@@ -1,7 +1,7 @@
 #include "Buffer.hpp"
 
 #include "Context.hpp"
-#include "CommandBuffer.hpp"
+#include "UploadContext.hpp"
 
 #include <vma/vk_mem_alloc.h>
 
@@ -43,33 +43,6 @@ void VertexBuffer::Create(const void* data, uint64_t size, VertexBufferUsage usa
 	m_Size = size;
 	m_Usage = usage;
 
-	VkBuffer stagingBuffer = VK_NULL_HANDLE;
-	VmaAllocation stagingAllocation = VK_NULL_HANDLE;
-
-	VkBufferCreateInfo stagingBufferInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = size,
-		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE
-	};
-
-	VmaAllocationCreateInfo stagingAllocationInfo
-	{
-		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		.usage = VMA_MEMORY_USAGE_AUTO
-	};
-
-	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &stagingBufferInfo, &stagingAllocationInfo, &stagingBuffer, &stagingAllocation, nullptr));
-
-	void* mappedData = nullptr;
-
-	VK_CHECK(vmaMapMemory(Allocator::GetAllocator(), stagingAllocation, &mappedData));
-
-	std::memcpy(mappedData, data, size);
-
-	vmaUnmapMemory(Allocator::GetAllocator(), stagingAllocation);
-
 	VkBufferCreateInfo bufferInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -85,24 +58,7 @@ void VertexBuffer::Create(const void* data, uint64_t size, VertexBufferUsage usa
 
 	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &bufferInfo, &allocationInfo, &m_Buffer, &m_Allocation, nullptr));
 
-	CommandPool commandPool;
-	commandPool.Create(Context::Get().GetGraphicsFamily());
-	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
-	commandBuffer.Begin(true);
-
-	VkBufferCopy copyRegion
-	{
-		.srcOffset = 0,
-		.dstOffset = 0,
-		.size = size
-	};
-
-	vkCmdCopyBuffer(commandBuffer.GetHandle(), stagingBuffer, m_Buffer, 1, &copyRegion);
-
-	commandBuffer.Flush();
-	commandPool.Destroy();
-
-	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
+	UploadContext::Get().UploadBuffer(m_Buffer, data, size);
 }
 
 void VertexBuffer::Destroy()
@@ -167,33 +123,6 @@ void IndexBuffer::Create(const void* data, uint64_t size)
 
 	m_Size = size;
 
-	VkBuffer stagingBuffer = VK_NULL_HANDLE;
-	VmaAllocation stagingAllocation = VK_NULL_HANDLE;
-
-	VkBufferCreateInfo stagingBufferInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = size,
-		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE
-	};
-
-	VmaAllocationCreateInfo stagingAllocationInfo
-	{
-		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		.usage = VMA_MEMORY_USAGE_AUTO
-	};
-
-	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &stagingBufferInfo, &stagingAllocationInfo, &stagingBuffer, &stagingAllocation, nullptr));
-
-	void* mappedData = nullptr;
-
-	VK_CHECK(vmaMapMemory(Allocator::GetAllocator(), stagingAllocation, &mappedData));
-
-	std::memcpy(mappedData, data, size);
-
-	vmaUnmapMemory(Allocator::GetAllocator(), stagingAllocation);
-
 	VkBufferCreateInfo bufferInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -209,24 +138,7 @@ void IndexBuffer::Create(const void* data, uint64_t size)
 
 	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &bufferInfo, &allocationInfo, &m_Buffer, &m_Allocation, nullptr));
 
-	CommandPool commandPool;
-	commandPool.Create(Context::Get().GetGraphicsFamily());
-	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
-	commandBuffer.Begin(true);
-
-	VkBufferCopy copyRegion
-	{
-		.srcOffset = 0,
-		.dstOffset = 0,
-		.size = size
-	};
-
-	vkCmdCopyBuffer(commandBuffer.GetHandle(), stagingBuffer, m_Buffer, 1, &copyRegion);
-
-	commandBuffer.Flush();
-	commandPool.Destroy();
-
-	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
+	UploadContext::Get().UploadBuffer(m_Buffer, data, size);
 }
 
 void IndexBuffer::Destroy()

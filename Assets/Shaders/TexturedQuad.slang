@@ -7,6 +7,7 @@ static const uint LINEAR_CLAMP_SAMPLER = 1;
 cbuffer PushConstants
 {
 	uint TextureIndex;
+	uint GradientIndex;
 };
 
 struct VertexInput
@@ -33,5 +34,8 @@ VertexOutput main(VertexInput input)
 [shader("fragment")]
 float4 main(VertexOutput input) : SV_Target
 {
-	return g_Textures[TextureIndex].Sample(g_Samplers[LINEAR_CLAMP_SAMPLER], input.TexCoord);
+	const float4 tex      = g_Textures[TextureIndex].Sample(g_Samplers[LINEAR_CLAMP_SAMPLER], input.TexCoord);
+	const float4 gradient = g_Textures[GradientIndex].Sample(g_Samplers[LINEAR_CLAMP_SAMPLER], input.TexCoord);
+
+	return float4(lerp(tex.rgb, gradient.rgb, gradient.a), 1.0f);
 }

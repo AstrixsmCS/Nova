@@ -22,15 +22,21 @@ protected:
 
 private:
 	void CreateDepthImage(const Dimensions& size);
+	void CreateComputeImage(const Dimensions& size);
+	void RecordComputePass(CommandBuffer& cmd, float time);
 
 private:
 	VertexBuffer m_VertexBuffer;
 	IndexBuffer  m_IndexBuffer;
 
-	std::shared_ptr<Shader> m_Shader;
+	std::shared_ptr<Shader> m_GraphicsShader;
 	GraphicsState           m_GraphicsState;
+	Image2D                 m_DepthImage;
+
+	std::shared_ptr<Shader> m_ComputeShader;
+	Image2D                 m_ComputeImage;
 
 	std::shared_ptr<Texture2D> m_Texture;
 
-	Image2D m_DepthImage;
+	float m_Time = 0.0f;
 };

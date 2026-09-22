@@ -2,8 +2,9 @@
 
 #include "VulkanUtils.hpp"
 
-#include "Allocator.hpp"
 #include "Context.hpp"
+
+#include "UploadContext.hpp"
 
 #include <stb_image.h>
 
@@ -11,8 +12,6 @@
 #include <cassert>
 #include <cstring>
 #include <format>
-
-#include "CommandBuffer.hpp"
 
 void Texture2D::Create(const TextureSpecification& specification)
 {
@@ -54,40 +53,40 @@ void Texture2D::Create(const TextureSpecification& specification, const void* da
 
 bool Texture2D::Load(const std::filesystem::path& path, bool sRGB)
 {
-    int width    = 0;
-    int height   = 0;
-    int channels = 0;
+	int width    = 0;
+	int height   = 0;
+	int channels = 0;
 
-    stbi_uc* pixels = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
+	stbi_uc* pixels = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
 
-    if (!pixels || width <= 0 || height <= 0)
-    {
-        std::println("[Texture2D] stbi_load failed for '{}': {}", path.string(), stbi_failure_reason());
+	if (!pixels || width <= 0 || height <= 0)
+	{
+		std::println("[Texture2D] stbi_load failed for '{}': {}", path.string(), stbi_failure_reason());
 
-        if (pixels)
-            stbi_image_free(pixels);
+		if (pixels)
+			stbi_image_free(pixels);
 
-        return false;
-    }
+		return false;
+	}
 
-    const TextureSpecification spec
-    {
-        .DebugName    = path.filename().string(),
-        .Format       = sRGB ? Format::RGBA8_SRGB : Format::RGBA8_UNorm,
-        .Usage        = ImageUsage::Texture,
-        .GenerateMips = true,
-        .Size =
+	const TextureSpecification spec
+	{
+		.DebugName    = path.filename().string(),
+		.Format       = sRGB ? Format::RGBA8_SRGB : Format::RGBA8_UNorm,
+		.Usage        = ImageUsage::Texture,
+		.GenerateMips = true,
+		.Size =
 		{
 			.Width  = static_cast<uint32_t>(width),
 			.Height = static_cast<uint32_t>(height),
 		}
-    };
+	};
 
-    Create(spec, pixels);
+	Create(spec, pixels);
 
-    stbi_image_free(pixels);
+	stbi_image_free(pixels);
 
-    return IsValid();
+	return IsValid();
 }
 
 void Texture2D::Destroy()
@@ -100,36 +99,7 @@ void Texture2D::SetData(const void* data, size_t size)
 	assert(data && size > 0);
 	assert(m_Image.IsValid());
 
-	VkBuffer      stagingBuffer     = VK_NULL_HANDLE;
-	VmaAllocation stagingAllocation = VK_NULL_HANDLE;
-
-	VkBufferCreateInfo stagingBufferInfo
-	{
-		.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size        = static_cast<VkDeviceSize>(size),
-		.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE
-	};
-
-	VmaAllocationCreateInfo stagingAllocInfo
-	{
-		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		.usage = VMA_MEMORY_USAGE_AUTO
-	};
-
-	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &stagingBufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr));
-
-	void* mapped = nullptr;
-	VK_CHECK(vmaMapMemory(Allocator::GetAllocator(), stagingAllocation, &mapped));
-	std::memcpy(mapped, data, size);
-	vmaUnmapMemory(Allocator::GetAllocator(), stagingAllocation);
-
-	CommandPool commandPool;
-	commandPool.Create(Context::Get().GetGraphicsFamily());
-	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
-	commandBuffer.Begin(true);
-
-	VkImageSubresourceRange mipZero
+	const VkImageSubresourceRange mipZero
 	{
 		.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		.baseMipLevel   = 0,
@@ -138,14 +108,7 @@ void Texture2D::SetData(const void* data, size_t size)
 		.layerCount     = 1
 	};
 
-	commandBuffer.ImageBarrier(m_Image.GetHandle(),
-						VK_IMAGE_LAYOUT_UNDEFINED,
-						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-						mipZero,
-						VK_PIPELINE_STAGE_2_NONE,
-						VK_PIPELINE_STAGE_2_COPY_BIT);
-
-	VkBufferImageCopy copyRegion
+	const VkBufferImageCopy copyRegion
 	{
 		.imageSubresource =
 		{
@@ -157,21 +120,9 @@ void Texture2D::SetData(const void* data, size_t size)
 		.imageExtent = ToVulkan(m_Image.GetDimensions())
 	};
 
-	vkCmdCopyBufferToImage(commandBuffer.GetHandle(), stagingBuffer, m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+	const VkImageLayout finalLayout = m_Image.GetMipCount() > 1 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-	const VkImageLayout afterCopyLayout = m_Image.GetMipCount() > 1 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-	commandBuffer.ImageBarrier(m_Image.GetHandle(),
-					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-					afterCopyLayout,
-					mipZero,
-					VK_PIPELINE_STAGE_2_COPY_BIT,
-					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
-
-	commandBuffer.Flush();
-	commandPool.Destroy();
-
-	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
+	UploadContext::Get().UploadImage(m_Image.GetHandle(), data, static_cast<VkDeviceSize>(size), copyRegion, mipZero, finalLayout);
 }
 
 void Texture2D::GenerateMips()
@@ -179,72 +130,125 @@ void Texture2D::GenerateMips()
 	const uint32_t mipCount = m_Image.GetMipCount();
 	assert(mipCount > 1);
 
-	CommandPool commandPool;
-	commandPool.Create(Context::Get().GetGraphicsFamily());
-	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
-	commandBuffer.Begin(true);
+	const VkImage image     = m_Image.GetHandle();
+	const int32_t fullWidth = static_cast<int32_t>(m_Image.GetWidth());
+	const int32_t fullHeight= static_cast<int32_t>(m_Image.GetHeight());
 
-	int32_t mipWidth  = static_cast<int32_t>(m_Image.GetWidth());
-	int32_t mipHeight = static_cast<int32_t>(m_Image.GetHeight());
-
-	for (uint32_t mip = 1; mip < mipCount; ++mip)
+	Context::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
 	{
-		const int32_t nextWidth  = std::max(mipWidth  / 2, 1);
-		const int32_t nextHeight = std::max(mipHeight / 2, 1);
+		int32_t mipWidth  = fullWidth;
+		int32_t mipHeight = fullHeight;
 
-		VkImageSubresourceRange dstRange
+		for (uint32_t mip = 1; mip < mipCount; ++mip)
+		{
+			const int32_t nextWidth  = std::max(mipWidth  / 2, 1);
+			const int32_t nextHeight = std::max(mipHeight / 2, 1);
+
+			const VkImageSubresourceRange dstRange
+			{
+				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel   = mip,
+				.levelCount     = 1,
+				.baseArrayLayer = 0,
+				.layerCount     = 1
+			};
+
+			// UNDEFINED → TRANSFER_DST (dst mip)
+			const VkImageMemoryBarrier2 toDst
+			{
+				.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask        = VK_PIPELINE_STAGE_2_NONE,
+				.srcAccessMask       = VK_ACCESS_2_NONE,
+				.dstStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+				.dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image               = image,
+				.subresourceRange    = dstRange
+			};
+
+			const VkDependencyInfo toDstDep
+			{
+				.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 1,
+				.pImageMemoryBarriers    = &toDst
+			};
+
+			vkCmdPipelineBarrier2(cmd, &toDstDep);
+
+			VkImageBlit blit{};
+			blit.srcOffsets[1]  = { mipWidth,  mipHeight,  1 };
+			blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1, 0, 1 };
+			blit.dstOffsets[1]  = { nextWidth,  nextHeight,  1 };
+			blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip,     0, 1 };
+
+			vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+			// TRANSFER_DST → TRANSFER_SRC (dst mip becomes next src)
+			const VkImageMemoryBarrier2 toSrc
+			{
+				.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+				.srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				.dstStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+				.dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT,
+				.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image               = image,
+				.subresourceRange    = dstRange
+			};
+
+			const VkDependencyInfo toSrcDep
+			{
+				.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 1,
+				.pImageMemoryBarriers    = &toSrc
+			};
+
+			vkCmdPipelineBarrier2(cmd, &toSrcDep);
+
+			mipWidth  = nextWidth;
+			mipHeight = nextHeight;
+		}
+
+		// All mips TRANSFER_SRC → SHADER_READ_ONLY
+		const VkImageSubresourceRange allMips
 		{
 			.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			.baseMipLevel   = mip,
-			.levelCount     = 1,
+			.baseMipLevel   = 0,
+			.levelCount     = mipCount,
 			.baseArrayLayer = 0,
 			.layerCount     = 1
 		};
 
-		commandBuffer.ImageBarrier(m_Image.GetHandle(),
-						VK_IMAGE_LAYOUT_UNDEFINED,
-						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-						dstRange,
-						VK_PIPELINE_STAGE_2_NONE,
-						VK_PIPELINE_STAGE_2_BLIT_BIT);
+		const VkImageMemoryBarrier2 toReadOnly
+		{
+			.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+			.srcStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+			.srcAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT,
+			.dstStageMask        = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+			.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
+			.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image               = image,
+			.subresourceRange    = allMips
+		};
 
-		VkImageBlit blit{};
-		blit.srcOffsets[1]  = { mipWidth, mipHeight, 1 };
-		blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1, 0, 1 };
-		blit.dstOffsets[1]  = { nextWidth, nextHeight, 1 };
-		blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, 1 };
+		const VkDependencyInfo finalDep
+		{
+			.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+			.imageMemoryBarrierCount = 1,
+			.pImageMemoryBarriers    = &toReadOnly
+		};
 
-		vkCmdBlitImage(commandBuffer.GetHandle(), m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image.GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-
-		commandBuffer.ImageBarrier(m_Image.GetHandle(),
-						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-						VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-						dstRange,
-						VK_PIPELINE_STAGE_2_BLIT_BIT,
-						VK_PIPELINE_STAGE_2_BLIT_BIT);
-
-		mipWidth  = nextWidth;
-		mipHeight = nextHeight;
-	}
-
-	VkImageSubresourceRange allMips
-	{
-		.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		.baseMipLevel   = 0,
-		.levelCount     = mipCount,
-		.baseArrayLayer = 0,
-		.layerCount     = 1
-	};
-
-	commandBuffer.ImageBarrier(m_Image.GetHandle(),
-					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-					allMips,
-					VK_PIPELINE_STAGE_2_BLIT_BIT,
-					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
-
-	commandBuffer.Flush();
-	commandPool.Destroy();
+		vkCmdPipelineBarrier2(cmd, &finalDep);
+	});
 }
 
 void TextureCube::Create(const TextureSpecification& specification)
@@ -441,36 +445,7 @@ void TextureCube::SetData(const void* data, size_t size)
 	assert(data && size > 0);
 	assert(IsValid());
 
-	VkBuffer      stagingBuffer     = VK_NULL_HANDLE;
-	VmaAllocation stagingAllocation = VK_NULL_HANDLE;
-
-	VkBufferCreateInfo stagingBufferInfo
-	{
-		.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size        = static_cast<VkDeviceSize>(size),
-		.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE
-	};
-
-	VmaAllocationCreateInfo stagingAllocInfo
-	{
-		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		.usage = VMA_MEMORY_USAGE_AUTO
-	};
-
-	VK_CHECK(vmaCreateBuffer(Allocator::GetAllocator(), &stagingBufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr));
-
-	void* mapped = nullptr;
-	VK_CHECK(vmaMapMemory(Allocator::GetAllocator(), stagingAllocation, &mapped));
-	std::memcpy(mapped, data, size);
-	vmaUnmapMemory(Allocator::GetAllocator(), stagingAllocation);
-
-	CommandPool commandPool;
-	commandPool.Create(Context::Get().GetGraphicsFamily());
-	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
-	commandBuffer.Begin(true);
-
-	VkImageSubresourceRange mipZero
+	const VkImageSubresourceRange mipZero
 	{
 		.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 		.baseMipLevel   = 0,
@@ -479,14 +454,7 @@ void TextureCube::SetData(const void* data, size_t size)
 		.layerCount     = 6
 	};
 
-	commandBuffer.ImageBarrier(m_Image,
-					VK_IMAGE_LAYOUT_UNDEFINED,
-					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-					mipZero,
-					VK_PIPELINE_STAGE_2_NONE,
-					VK_PIPELINE_STAGE_2_COPY_BIT);
-
-	VkBufferImageCopy copyRegion
+	const VkBufferImageCopy copyRegion
 	{
 		.imageSubresource =
 		{
@@ -498,21 +466,9 @@ void TextureCube::SetData(const void* data, size_t size)
 		.imageExtent = ToVulkan(m_Specification.Size)
 	};
 
-	vkCmdCopyBufferToImage(commandBuffer.GetHandle(), stagingBuffer, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+	const VkImageLayout finalLayout = m_MipCount > 1 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-	const VkImageLayout afterCopyLayout = m_MipCount > 1 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-	commandBuffer.ImageBarrier(m_Image,
-					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-					afterCopyLayout,
-					mipZero,
-					VK_PIPELINE_STAGE_2_COPY_BIT,
-					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
-
-	commandBuffer.Flush();
-	commandPool.Destroy();
-
-	vmaDestroyBuffer(Allocator::GetAllocator(), stagingBuffer, stagingAllocation);
+	UploadContext::Get().UploadImage(m_Image, data, static_cast<VkDeviceSize>(size), copyRegion, mipZero, finalLayout);
 
 	if (m_MipCount > 1)
 		GenerateMips();
@@ -522,73 +478,123 @@ void TextureCube::GenerateMips()
 {
 	assert(m_MipCount > 1);
 
-	CommandPool commandPool;
-	commandPool.Create(Context::Get().GetGraphicsFamily());
-	CommandBuffer commandBuffer = commandPool.AllocateCommandBuffer();
-	commandBuffer.Begin(true);
+	const VkImage image     = m_Image;
+	const int32_t fullWidth = static_cast<int32_t>(m_Specification.Size.Width);
+	const int32_t fullHeight= static_cast<int32_t>(m_Specification.Size.Height);
 
-	int32_t mipWidth  = static_cast<int32_t>(m_Specification.Size.Width);
-	int32_t mipHeight = static_cast<int32_t>(m_Specification.Size.Height);
-
-	for (uint32_t mip = 1; mip < m_MipCount; ++mip)
+	Context::Get().ImmediateSubmit([&](VkCommandBuffer cmd)
 	{
-		const int32_t nextWidth  = std::max(mipWidth  / 2, 1);
-		const int32_t nextHeight = std::max(mipHeight / 2, 1);
+		int32_t mipWidth  = fullWidth;
+		int32_t mipHeight = fullHeight;
 
-		VkImageSubresourceRange dstRange
+		for (uint32_t mip = 1; mip < m_MipCount; ++mip)
+		{
+			const int32_t nextWidth  = std::max(mipWidth  / 2, 1);
+			const int32_t nextHeight = std::max(mipHeight / 2, 1);
+
+			const VkImageSubresourceRange dstRange
+			{
+				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel   = mip,
+				.levelCount     = 1,
+				.baseArrayLayer = 0,
+				.layerCount     = 6
+			};
+
+			const VkImageMemoryBarrier2 toDst
+			{
+				.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask        = VK_PIPELINE_STAGE_2_NONE,
+				.srcAccessMask       = VK_ACCESS_2_NONE,
+				.dstStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+				.dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image               = image,
+				.subresourceRange    = dstRange
+			};
+
+			const VkDependencyInfo toDstDep
+			{
+				.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 1,
+				.pImageMemoryBarriers    = &toDst
+			};
+
+			vkCmdPipelineBarrier2(cmd, &toDstDep);
+
+			for (uint32_t face = 0; face < 6; ++face)
+			{
+				VkImageBlit blit{};
+				blit.srcOffsets[1]  = { mipWidth,  mipHeight,  1 };
+				blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1, face, 1 };
+				blit.dstOffsets[1]  = { nextWidth,  nextHeight,  1 };
+				blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip,     face, 1 };
+
+				vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+			}
+
+			const VkImageMemoryBarrier2 toSrc
+			{
+				.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+				.srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				.dstStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+				.dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT,
+				.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image               = image,
+				.subresourceRange    = dstRange
+			};
+
+			const VkDependencyInfo toSrcDep
+			{
+				.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.imageMemoryBarrierCount = 1,
+				.pImageMemoryBarriers    = &toSrc
+			};
+
+			vkCmdPipelineBarrier2(cmd, &toSrcDep);
+
+			mipWidth  = nextWidth;
+			mipHeight = nextHeight;
+		}
+
+		const VkImageSubresourceRange allMips
 		{
 			.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			.baseMipLevel   = mip,
-			.levelCount     = 1,
+			.baseMipLevel   = 0,
+			.levelCount     = m_MipCount,
 			.baseArrayLayer = 0,
 			.layerCount     = 6
 		};
 
-		commandBuffer.ImageBarrier(m_Image,
-						VK_IMAGE_LAYOUT_UNDEFINED,
-						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-						dstRange,
-						VK_PIPELINE_STAGE_2_NONE,
-						VK_PIPELINE_STAGE_2_BLIT_BIT);
-
-		for (uint32_t face = 0; face < 6; ++face)
+		const VkImageMemoryBarrier2 toReadOnly
 		{
-			VkImageBlit blit{};
-			blit.srcOffsets[1]  = { mipWidth, mipHeight, 1 };
-			blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1, face, 1 };
-			blit.dstOffsets[1]  = { nextWidth, nextHeight, 1 };
-			blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, face, 1 };
+			.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+			.srcStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
+			.srcAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT,
+			.dstStageMask        = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+			.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
+			.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image               = image,
+			.subresourceRange    = allMips
+		};
 
-			vkCmdBlitImage(commandBuffer.GetHandle(), m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-		}
+		const VkDependencyInfo finalDep
+		{
+			.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+			.imageMemoryBarrierCount = 1,
+			.pImageMemoryBarriers    = &toReadOnly
+		};
 
-		commandBuffer.ImageBarrier(m_Image,
-						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-						VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-						dstRange,
-						VK_PIPELINE_STAGE_2_BLIT_BIT,
-						VK_PIPELINE_STAGE_2_BLIT_BIT);
-
-		mipWidth  = nextWidth;
-		mipHeight = nextHeight;
-	}
-
-	VkImageSubresourceRange allMips
-	{
-		.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-		.baseMipLevel   = 0,
-		.levelCount     = m_MipCount,
-		.baseArrayLayer = 0,
-		.layerCount     = 6
-	};
-
-	commandBuffer.ImageBarrier(m_Image,
-					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-					allMips,
-					VK_PIPELINE_STAGE_2_BLIT_BIT,
-					VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
-
-	commandBuffer.Flush();
-	commandPool.Destroy();
+		vkCmdPipelineBarrier2(cmd, &finalDep);
+	});
 }

@@ -10,20 +10,40 @@ CommandPool::~CommandPool()
 	Destroy();
 }
 
-void CommandPool::Create(uint32_t queueFamilyIndex)
+void CommandPool::Create(uint32_t queueFamilyIndex, uint32_t commandBufferCount)
 {
 	assert(m_Handle == VK_NULL_HANDLE);
+	assert(commandBufferCount > 0);
 
 	VkDevice device = Context::Get().GetDevice();
 
-	VkCommandPoolCreateInfo poolInfo
+	const VkCommandPoolCreateInfo poolInfo
 	{
-		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-		.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+		.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
 		.queueFamilyIndex = queueFamilyIndex
 	};
 
 	VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &m_Handle));
+
+	std::vector<VkCommandBuffer> handles(commandBufferCount);
+
+	const VkCommandBufferAllocateInfo allocInfo
+	{
+		.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool        = m_Handle,
+		.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.commandBufferCount = commandBufferCount
+	};
+
+	VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, handles.data()));
+
+	m_CommandBuffers.resize(commandBufferCount);
+
+	for (uint32_t i = 0; i < commandBufferCount; ++i)
+		m_CommandBuffers[i].m_Handle = handles[i];
+
+	m_NextCommandBuffer = 0;
 }
 
 void CommandPool::Destroy()
@@ -31,40 +51,31 @@ void CommandPool::Destroy()
 	if (m_Handle == VK_NULL_HANDLE)
 		return;
 
-	VkDevice device = Context::Get().GetDevice();
-
-	vkDestroyCommandPool(device, m_Handle, nullptr);
+	vkDestroyCommandPool(Context::Get().GetDevice(), m_Handle, nullptr);
 	m_Handle = VK_NULL_HANDLE;
+
+	for (CommandBuffer& commandBuffer : m_CommandBuffers)
+		commandBuffer.m_Handle = VK_NULL_HANDLE;
+
+	m_CommandBuffers.clear();
+	m_NextCommandBuffer = 0;
 }
 
 void CommandPool::Reset()
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 
-	VkDevice device = Context::Get().GetDevice();
+	VK_CHECK(vkResetCommandPool(Context::Get().GetDevice(), m_Handle, 0));
 
-	VK_CHECK(vkResetCommandPool(device, m_Handle, 0));
+	m_NextCommandBuffer = 0;
 }
 
-CommandBuffer CommandPool::AllocateCommandBuffer()
+CommandBuffer& CommandPool::Acquire()
 {
 	assert(m_Handle != VK_NULL_HANDLE);
+	assert(m_NextCommandBuffer < m_CommandBuffers.size() && "CommandPool exhausted increase MAX_COMMAND_BUFFERS.");
 
-	VkDevice device = Context::Get().GetDevice();
-
-	VkCommandBufferAllocateInfo allocInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.commandPool = m_Handle,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = 1
-	};
-
-	CommandBuffer commandBuffer;
-
-	VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer.m_Handle));
-
-	return commandBuffer;
+	return m_CommandBuffers[m_NextCommandBuffer++];
 }
 
 DebugLabelScope::DebugLabelScope(const CommandBuffer& commandBuffer, const char* label, uint32_t colorRGBA)
@@ -101,47 +112,6 @@ void CommandBuffer::End()
 	assert(m_Handle != VK_NULL_HANDLE);
 
 	VK_CHECK(vkEndCommandBuffer(m_Handle));
-}
-
-void CommandBuffer::Flush()
-{
-	Flush(Context::Get().GetGraphicsQueue());
-}
-
-void CommandBuffer::Flush(VkQueue queue)
-{
-	assert(m_Handle != VK_NULL_HANDLE);
-	assert(queue != VK_NULL_HANDLE);
-
-	VkDevice device = Context::Get().GetDevice();
-
-	End();
-
-	VkCommandBufferSubmitInfo commandBufferInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-		.commandBuffer = m_Handle
-	};
-
-	VkSubmitInfo2 submitInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-		.commandBufferInfoCount = 1,
-		.pCommandBufferInfos = &commandBufferInfo
-	};
-
-	VkFenceCreateInfo fenceInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
-	};
-
-	VkFence fence = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &fence));
-
-	VK_CHECK(vkQueueSubmit2(queue, 1, &submitInfo, fence));
-	VK_CHECK(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
-
-	vkDestroyFence(device, fence, nullptr);
 }
 
 // ==== Recording commands ====
@@ -600,8 +570,7 @@ void CommandBuffer::ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImage
 			break;
 		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
 		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-			dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-						VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
 			dstAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -613,8 +582,7 @@ void CommandBuffer::ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImage
 			dstAccess = VK_ACCESS_2_SHADER_READ_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_GENERAL:
-			dstAccess = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-						VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+			dstAccess = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
 			break;
 		default:
 			break;
@@ -643,4 +611,33 @@ void CommandBuffer::ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImage
 	};
 
 	vkCmdPipelineBarrier2(m_Handle, &dep);
+}
+
+void CommandBuffer::BufferBarrier(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size, VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, uint32_t srcQueueFamilyIndex, uint32_t dstQueueFamilyIndex)
+{
+	assert(m_Handle != VK_NULL_HANDLE);
+	assert(buffer   != VK_NULL_HANDLE);
+
+	const VkBufferMemoryBarrier2 barrier
+	{
+		.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+		.srcStageMask        = srcStage,
+		.srcAccessMask       = srcAccess,
+		.dstStageMask        = dstStage,
+		.dstAccessMask       = dstAccess,
+		.srcQueueFamilyIndex = srcQueueFamilyIndex,
+		.dstQueueFamilyIndex = dstQueueFamilyIndex,
+		.buffer              = buffer,
+		.offset              = offset,
+		.size                = size
+	};
+
+	const VkDependencyInfo dependency
+	{
+		.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.bufferMemoryBarrierCount = 1,
+		.pBufferMemoryBarriers    = &barrier
+	};
+
+	vkCmdPipelineBarrier2(m_Handle, &dependency);
 }
