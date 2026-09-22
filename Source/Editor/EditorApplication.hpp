@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/Application.hpp"
-#include "Asset/AssetManager.hpp"
 
 #include "Renderer/Vulkan/Buffer.hpp"
 #include "Renderer/Vulkan/CommandBuffer.hpp"
@@ -23,20 +22,22 @@ protected:
 private:
 	void CreateDepthImage(const Dimensions& size);
 	void CreateComputeImage(const Dimensions& size);
-	void RecordComputePass(CommandBuffer& cmd, float time);
+	void RecordComputePass(CommandBuffer& commandBuffer, float time);
 
 private:
-	VertexBuffer m_VertexBuffer;
-	IndexBuffer  m_IndexBuffer;
+	Buffer m_VertexBuffer;
+	Buffer  m_IndexBuffer;
+
+	VertexBufferLayout m_VertexLayout;
 
 	std::shared_ptr<Shader> m_GraphicsShader;
 	GraphicsState           m_GraphicsState;
-	Image2D                 m_DepthImage;
+	Texture                 m_DepthImage;
 
 	std::shared_ptr<Shader> m_ComputeShader;
-	Image2D                 m_ComputeImage;
+	Texture                 m_ComputeImage;
 
-	std::shared_ptr<Texture2D> m_Texture;
+	std::shared_ptr<Texture> m_Texture;
 
 	float m_Time = 0.0f;
 };

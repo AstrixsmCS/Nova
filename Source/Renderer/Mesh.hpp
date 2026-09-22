@@ -76,20 +76,20 @@ public:
 	bool Load(const std::filesystem::path& path);
 	void Destroy();
 
-	bool IsValid()   const { return m_VertexBuffer.GetBuffer() != VK_NULL_HANDLE; }
+	bool IsValid() const { return m_VertexBuffer.GetHandle() != VK_NULL_HANDLE; }
 	bool IsStatic()  const { return m_MeshType == MeshType::Static;  }
 	bool IsSkinned() const { return m_MeshType == MeshType::Skinned; }
 
 	MeshType GetMeshType() const { return m_MeshType; }
 
-	VkBuffer GetVertexBuffer() const { return m_VertexBuffer.GetBuffer(); }
-	VkBuffer GetIndexBuffer()  const { return m_IndexBuffer.GetBuffer();  }
+	VkBuffer GetVertexBuffer() const { return m_VertexBuffer.GetHandle(); }
+	VkBuffer GetIndexBuffer()  const { return m_IndexBuffer.GetHandle();  }
 
 	const std::vector<Submesh>&                    GetSubmeshes()  const { return m_Submeshes;  }
 	const std::vector<Node>&                       GetNodes()      const { return m_Nodes;      }
 	const std::vector<uint32_t>&                   GetRootNodes()  const { return m_RootNodes;  }
 	const std::vector<std::shared_ptr<Material>>&  GetMaterials()  const { return m_Materials;  }
-	const std::vector<std::shared_ptr<Texture2D>>& GetTextures()   const { return m_Textures;   }
+	const std::vector<std::shared_ptr<Texture>>& GetTextures()   const { return m_Textures;   }
 
 	const std::string& GetName()      const { return m_Name;      }
 	const std::string& GetSceneName() const { return m_SceneName; }
@@ -106,8 +106,8 @@ private:
 	std::vector<Node>                       m_Nodes;
 	std::vector<uint32_t>                   m_RootNodes;
 	std::vector<std::shared_ptr<Material>>  m_Materials;
-	std::vector<std::shared_ptr<Texture2D>> m_Textures;
+	std::vector<std::shared_ptr<Texture>> m_Textures;
 
-	VertexBuffer m_VertexBuffer;
-	IndexBuffer  m_IndexBuffer;
+	Buffer m_VertexBuffer;
+	Buffer  m_IndexBuffer;
 };

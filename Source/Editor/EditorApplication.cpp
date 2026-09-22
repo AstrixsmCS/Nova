@@ -45,20 +45,35 @@ EditorApplication::~EditorApplication() = default;
 
 void EditorApplication::OnInitialize()
 {
-	m_VertexBuffer.Create(QuadVertices, sizeof(QuadVertices), VertexBufferUsage::Static);
-	m_VertexBuffer.SetLayout(
+	m_VertexBuffer.Create(
+	{
+		.DebugName = "Quad Vertex Buffer",
+		.Usage     = BufferUsage::Vertex,
+		.Memory    = BufferMemory::Device,
+		.Size      = sizeof(QuadVertices),
+		.Data      = QuadVertices
+	});
+
+	m_VertexLayout =
 	{
 		{ ShaderDataType::Float2, "Position" },
 		{ ShaderDataType::Float2, "TexCoord" },
-	});
+	};
 
-	m_IndexBuffer.Create(QuadIndices, sizeof(QuadIndices));
+	m_IndexBuffer.Create(
+	{
+		.DebugName = "Quad Index Buffer",
+		.Usage     = BufferUsage::Index,
+		.Memory    = BufferMemory::Device,
+		.Size      = sizeof(QuadIndices),
+		.Data      = QuadIndices
+	});
 
 	m_GraphicsShader = std::make_shared<Shader>();
 	m_GraphicsShader->Load("Assets/Shaders/TexturedQuad.slang");
 	assert(m_GraphicsShader->IsValid());
 
-	m_GraphicsState.VertexLayout = m_VertexBuffer.GetLayout();
+	m_GraphicsState.VertexLayout = m_VertexLayout;
 	m_GraphicsState.DepthTest    = false;
 	m_GraphicsState.DepthWrite   = false;
 	m_GraphicsState.CullMode     = CullMode::None;
@@ -67,7 +82,7 @@ void EditorApplication::OnInitialize()
 	m_ComputeShader->Load("Assets/Shaders/Gradient.slang");
 	assert(m_ComputeShader->IsValid());
 
-	m_Texture = std::make_shared<Texture2D>();
+	m_Texture = std::make_shared<Texture>();
 	const bool loaded = m_Texture->Load("Assets/Textures/Test.png");
 	assert(loaded && m_Texture->IsValid());
 
@@ -81,9 +96,11 @@ void EditorApplication::CreateDepthImage(const Dimensions& size)
 	m_DepthImage.Destroy();
 	m_DepthImage.Create(
 	{
-		.Format = Format::D32_Float,
-		.Usage  = ImageUsage::Attachment,
-		.Size   = size
+		.Type         = TextureType::Texture2D,
+		.Format       = Format::D32_Float,
+		.Size         = { size.Width, size.Height, 1 },
+		.Usage        = TextureUsageBits_Attachment,
+		.DebugName    = "Depth Image"
 	});
 }
 
@@ -92,13 +109,15 @@ void EditorApplication::CreateComputeImage(const Dimensions& size)
 	m_ComputeImage.Destroy();
 	m_ComputeImage.Create(
 	{
-		.Format = Format::RGBA8_UNorm,
-		.Usage  = ImageUsage::Storage,
-		.Size   = size
+		.Type         = TextureType::Texture2D,
+		.Format       = Format::RGBA8_UNorm,
+		.Size         = { size.Width, size.Height, 1 },
+		.Usage        = TextureUsageBits_Storage | TextureUsageBits_Sampled,
+		.DebugName    = "Compute Image"
 	});
 }
 
-void EditorApplication::RecordComputePass(CommandBuffer& cmd, float time)
+void EditorApplication::RecordComputePass(CommandBuffer& commandBuffer, float time)
 {
 	const VkExtent2D extent    = Renderer::GetSwapChain().GetExtent();
 	const bool       async     = Renderer::HasAsyncCompute();
@@ -106,9 +125,9 @@ void EditorApplication::RecordComputePass(CommandBuffer& cmd, float time)
 	const uint32_t   cmpFamily = Context::Get().GetComputeFamily();
 
 	// UNDEFINED → GENERAL for storage write.
-	cmd.ImageBarrier(m_ComputeImage.GetHandle(), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_NONE, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+	commandBuffer.ImageBarrier(m_ComputeImage.GetHandle(), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_NONE, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 
-	m_ComputeShader->Bind(cmd);
+	m_ComputeShader->Bind(commandBuffer);
 
 	const ComputePushConstants push
 	{
@@ -120,14 +139,14 @@ void EditorApplication::RecordComputePass(CommandBuffer& cmd, float time)
 	const auto& ranges = m_ComputeShader->GetPushConstantRanges();
 	assert(!ranges.empty());
 
-	cmd.PushConstants(m_ComputeShader->GetPipelineLayout(), ranges[0].StageFlags, push, ranges[0].Offset);
+	commandBuffer.PushConstants(m_ComputeShader->GetPipelineLayout(), ranges[0].StageFlags, push, ranges[0].Offset);
 
 	const VkDescriptorSet computeSet = Descriptor::GetSet();
-	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputeShader->GetPipelineLayout(), 0, 1, &computeSet, 0, nullptr);
+	vkCmdBindDescriptorSets(commandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputeShader->GetPipelineLayout(), 0, 1, &computeSet, 0, nullptr);
 
 	const uint32_t groupsX = (extent.width  + 7) / 8;
 	const uint32_t groupsY = (extent.height + 7) / 8;
-	cmd.Dispatch(groupsX, groupsY, 1);
+	commandBuffer.Dispatch(groupsX, groupsY, 1);
 
 	// Release to graphics or transition inline.
 	{
@@ -153,7 +172,7 @@ void EditorApplication::RecordComputePass(CommandBuffer& cmd, float time)
 			.pImageMemoryBarriers    = &release
 		};
 
-		cmd.PipelineBarrier(dependency);
+		commandBuffer.PipelineBarrier(dependency);
 	}
 }
 
@@ -161,8 +180,8 @@ void EditorApplication::OnUpdate(Timestep ts)
 {
 	m_Time += ts.GetSeconds();
 
-	SwapChain&     swapChain = Renderer::GetSwapChain();
-	const VkExtent2D extent  = swapChain.GetExtent();
+	SwapChain&       swapChain = Renderer::GetSwapChain();
+	const VkExtent2D extent    = swapChain.GetExtent();
 
 	if (m_DepthImage.GetWidth() != extent.width || m_DepthImage.GetHeight() != extent.height)
 	{
@@ -224,7 +243,7 @@ void EditorApplication::OnUpdate(Timestep ts)
 
 	const RenderingAttachmentInfo depth
 	{
-		.ImageView  = m_DepthImage.GetAttachmentView(),
+		.ImageView  = m_DepthImage.GetView(),
 		.LoadOp     = LoadOp::Clear,
 		.StoreOp    = StoreOp::DontCare,
 		.ClearValue = { .DepthStencil = { 1.0f, 0 } },
@@ -254,8 +273,8 @@ void EditorApplication::OnUpdate(Timestep ts)
 		const VkDescriptorSet descriptorSet = Descriptor::GetSet();
 		vkCmdBindDescriptorSets(commandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsShader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
-		commandBuffer.BindVertexBuffer(m_VertexBuffer.GetBuffer());
-		commandBuffer.BindIndexBuffer(m_IndexBuffer.GetBuffer(), IndexFormat::UInt32);
+		commandBuffer.BindVertexBuffer(m_VertexBuffer.GetHandle());
+		commandBuffer.BindIndexBuffer(m_IndexBuffer.GetHandle(), IndexFormat::UInt32);
 
 		const auto& ranges = m_GraphicsShader->GetPushConstantRanges();
 		assert(!ranges.empty());
@@ -267,11 +286,9 @@ void EditorApplication::OnUpdate(Timestep ts)
 		};
 
 		commandBuffer.PushConstants(m_GraphicsShader->GetPipelineLayout(), ranges[0].StageFlags, push, ranges[0].Offset);
-		commandBuffer.DrawIndexed(m_IndexBuffer.GetCount());
+		commandBuffer.DrawIndexed(static_cast<uint32_t>(sizeof(QuadIndices) / sizeof(uint32_t)));
 	}
 	commandBuffer.EndRendering();
-
-	// ==== Barrier: color attachment → present ====
 
 	commandBuffer.ImageBarrier(swapChain.GetCurrentImage(), VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 }

@@ -265,7 +265,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		const fastgltf::Image& gltfImage = asset.images[gltfTexture.imageIndex.value()];
 		const Format           format    = textureFormats[i];
 
-		auto texture = std::make_shared<Texture2D>();
+		auto texture = std::make_shared<Texture>();
 		bool loaded  = false;
 
 		std::visit(fastgltf::visitor
@@ -279,17 +279,17 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 				if (pixels)
 				{
-					TextureSpecification spec;
-					spec.DebugName    = gltfImage.name.empty() ? texturePath.filename().string() : std::string(gltfImage.name);
-					spec.Format       = format;
-					spec.GenerateMips = true;
-					spec.Size =
+					texture->Create(
 					{
-						.Width  = static_cast<uint32_t>(width),
-						.Height = static_cast<uint32_t>(height),
-					};
+						.Type         = TextureType::Texture2D,
+						.Format       = format,
+						.Size         = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 },
+						.Usage        = TextureUsageBits_Sampled,
+						.Data         = pixels,
+						.GenerateMips = true,
+						.DebugName = gltfImage.name.empty() ? texturePath.filename().string() : std::string(gltfImage.name)
+					});
 
-					texture->Create(spec, pixels);
 					stbi_image_free(pixels);
 					loaded = texture->IsValid();
 				}
@@ -308,17 +308,17 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 				if (pixels)
 				{
-					TextureSpecification spec;
-					spec.DebugName    = gltfImage.name.empty() ? std::string(m_Name) : std::string(gltfImage.name);
-					spec.Format       = format;
-					spec.GenerateMips = true;
-					spec.Size =
+					texture->Create(
 					{
-						.Width  = static_cast<uint32_t>(width),
-						.Height = static_cast<uint32_t>(height),
-					};
+						.Type         = TextureType::Texture2D,
+						.Format       = format,
+						.Size         = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 },
+						.Usage        = TextureUsageBits_Sampled,
+						.Data         = pixels,
+						.GenerateMips = true,
+						.DebugName = gltfImage.name.empty() ? std::format("Mesh Texture {}", i) : std::string(gltfImage.name)
+					});
 
-					texture->Create(spec, pixels);
 					stbi_image_free(pixels);
 					loaded = texture->IsValid();
 				}
@@ -340,17 +340,17 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 						if (pixels)
 						{
-							TextureSpecification spec;
-							spec.DebugName    = gltfImage.name.empty() ? std::string(m_Name) : std::string(gltfImage.name);
-							spec.Format       = format;
-							spec.GenerateMips = true;
-							spec.Size =
+							texture->Create(
 							{
-								.Width  = static_cast<uint32_t>(width),
-								.Height = static_cast<uint32_t>(height),
-							};
+								.Type         = TextureType::Texture2D,
+								.Format       = format,
+								.Size         = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 },
+								.Usage        = TextureUsageBits_Sampled,
+								.Data         = pixels,
+								.GenerateMips = true,
+								.DebugName = gltfImage.name.empty() ? std::format("Mesh Texture {}", i) : std::string(gltfImage.name)
+							});
 
-							texture->Create(spec, pixels);
 							stbi_image_free(pixels);
 							loaded = texture->IsValid();
 						}
@@ -677,10 +677,28 @@ bool Mesh::Load(const std::filesystem::path& path)
 	// GPU upload
 
 	if (!vertices.empty())
-		m_VertexBuffer.Create(vertices.data(), vertices.size() * sizeof(Vertex));
+	{
+		m_VertexBuffer.Create(
+		{
+			.DebugName = m_Name + " Vertex Buffer",
+			.Usage     = BufferUsage::Vertex,
+			.Memory    = BufferMemory::Device,
+			.Size      = vertices.size() * sizeof(Vertex),
+			.Data      = vertices.data()
+		});
+	}
 
 	if (!indices.empty())
-		m_IndexBuffer.Create(indices.data(), indices.size() * sizeof(Index));
+	{
+		m_IndexBuffer.Create(
+		{
+			.DebugName = m_Name + " Index Buffer",
+			.Usage     = BufferUsage::Index,
+			.Memory    = BufferMemory::Device,
+			.Size      = indices.size() * sizeof(Index),
+			.Data      = indices.data()
+		});
+	}
 
 	std::println("[Mesh] Loaded '{}' - {} vertices, {} indices, {} submeshes, {} nodes, {} textures, {} materials",
 		m_Name,

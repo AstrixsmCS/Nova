@@ -373,7 +373,7 @@ constexpr VkImageType ToVulkan(TextureType type)
 	{
 		case TextureType::Texture2D: return VK_IMAGE_TYPE_2D;
 		case TextureType::Texture3D: return VK_IMAGE_TYPE_3D;
-		case TextureType::Cube:      return VK_IMAGE_TYPE_2D;
+		case TextureType::TextureCube:      return VK_IMAGE_TYPE_2D;
 	}
 
 	std::abort();
@@ -386,7 +386,7 @@ constexpr VkImageViewType ToVulkanImageViewType(TextureType type)
 	{
 		case TextureType::Texture2D: return VK_IMAGE_VIEW_TYPE_2D;
 		case TextureType::Texture3D: return VK_IMAGE_VIEW_TYPE_3D;
-		case TextureType::Cube:      return VK_IMAGE_VIEW_TYPE_CUBE;
+		case TextureType::TextureCube:      return VK_IMAGE_VIEW_TYPE_CUBE;
 	}
 
 	std::abort();

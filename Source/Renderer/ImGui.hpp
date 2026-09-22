@@ -32,8 +32,8 @@ public:
 private:
 	struct FrameBuffers
 	{
-		VertexBuffer Vertices;
-		IndexBuffer  Indices;
+		Buffer Vertices;
+		Buffer  Indices;
 
 		uint64_t VertexCapacity = 0;
 		uint64_t IndexCapacity  = 0;
@@ -49,7 +49,7 @@ private:
 	static constexpr uint32_t MaxFramesInFlight = Renderer::GetFramesInFlight();
 
 	std::shared_ptr<Shader>    m_Shader;
-	std::shared_ptr<Texture2D> m_FontTexture;
+	std::shared_ptr<Texture> m_FontTexture;
 
 	GraphicsState m_State;
 	Material      m_Material;

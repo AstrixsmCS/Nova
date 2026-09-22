@@ -83,7 +83,7 @@ enum class TextureType : uint8_t
 {
 	Texture2D = 0,
 	Texture3D,
-	Cube
+	TextureCube
 };
 
 enum class CullMode : uint8_t

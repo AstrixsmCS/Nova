@@ -22,7 +22,7 @@ enum class MapType : uint8_t
 
 struct MapInfo
 {
-	std::shared_ptr<Texture2D> Texture;
+	std::shared_ptr<Texture> Texture;
 
 	MapType Type = MapType::Albedo;
 	uint32_t UvIndex = 0;

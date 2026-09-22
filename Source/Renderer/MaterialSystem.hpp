@@ -19,7 +19,7 @@ public:
 
 	static uint32_t PrepareMaterial(const std::shared_ptr<Material>& material);
 
-	static const StorageBuffer& GetBuffer(uint32_t frameIndex) { return s_Buffers[frameIndex]; }
+	static const Buffer& GetBuffer(uint32_t frameIndex) { return s_Buffers[frameIndex]; }
 
 	static constexpr uint32_t FallbackIndex = 0;
 
@@ -34,7 +34,7 @@ private:
 		std::array<uint64_t, FRAMES_IN_FLIGHT> UploadedRevisions{};
 	};
 
-	static std::array<StorageBuffer, FRAMES_IN_FLIGHT> s_Buffers;
+	static std::array<Buffer, FRAMES_IN_FLIGHT> s_Buffers;
 
 	static std::vector<MaterialSlot> s_Slots;
 	static std::vector<uint32_t>     s_FreeIndices;

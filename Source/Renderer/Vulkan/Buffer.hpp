@@ -1,8 +1,46 @@
 #pragma once
 
 #include "Vulkan.hpp"
+
 #include "Renderer/RendererTypes.hpp"
-#include "Allocator.hpp"
+
+#include <vma/vk_mem_alloc.h>
+
+#include <cstdint>
+#include <string>
+
+enum class BufferUsage : uint32_t
+{
+	None     = 0,
+	Vertex   = 1 << 0,
+	Index    = 1 << 1,
+	Uniform  = 1 << 2,
+	Storage  = 1 << 3,
+	Indirect = 1 << 4
+};
+
+constexpr BufferUsage operator|(BufferUsage a, BufferUsage b) { return static_cast<BufferUsage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b)); }
+constexpr BufferUsage operator&(BufferUsage a, BufferUsage b) { return static_cast<BufferUsage>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b)); }
+
+constexpr bool HasFlag(BufferUsage value, BufferUsage flag) { return (value & flag) != BufferUsage::None; }
+
+enum class BufferMemory
+{
+	Device,
+	HostVisible
+};
+
+struct BufferSpecification
+{
+	std::string DebugName;
+
+	BufferUsage Usage = BufferUsage::None;
+	BufferMemory Memory = BufferMemory::HostVisible;
+
+	VkDeviceSize Size = 0;
+
+	const void* Data = nullptr;
+};
 
 inline uint32_t ShaderDataTypeSize(ShaderDataType type)
 {
@@ -134,104 +172,41 @@ private:
 	uint32_t m_Stride = 0;
 };
 
-enum class VertexBufferUsage
-{
-	None = 0,
-	Static,
-	Dynamic
-};
-
-class VertexBuffer
+class Buffer
 {
 public:
-	void Create(const void* data, uint64_t size, VertexBufferUsage usage = VertexBufferUsage::Static);
-	void Create(uint64_t size, VertexBufferUsage usage = VertexBufferUsage::Dynamic);
+	Buffer() = default;
+	~Buffer();
 
-	void Destroy();
+	Buffer(const Buffer&) = delete;
+	Buffer& operator=(const Buffer&) = delete;
 
-	void SetData(const void* data, uint64_t size, uint64_t offset = 0);
+	Buffer(Buffer&& other) noexcept;
+	Buffer& operator=(Buffer&& other) noexcept;
 
-	void SetLayout(const VertexBufferLayout& layout) { m_Layout = layout; }
-
-	VkBuffer GetBuffer() const { return m_Buffer; }
-	VmaAllocation GetAllocation() const { return m_Allocation; }
-	uint64_t GetSize() const { return m_Size; }
-	VertexBufferUsage GetUsage() const { return m_Usage; }
-	const VertexBufferLayout& GetLayout() const { return m_Layout; }
-
-private:
-	VkBuffer m_Buffer = VK_NULL_HANDLE;
-	VmaAllocation m_Allocation = VK_NULL_HANDLE;
-
-	uint64_t m_Size = 0;
-
-	VertexBufferUsage m_Usage = VertexBufferUsage::Static;
-
-	VertexBufferLayout m_Layout;
-};
-
-class IndexBuffer
-{
-public:
-	void Create(const void* data, uint64_t size);
-	void Create(uint64_t size);
-
-	void Destroy();
-
-	void SetData(const void* data, uint64_t size, uint64_t offset = 0);
-
-	uint32_t GetCount() const { return static_cast<uint32_t>(m_Size / sizeof(uint32_t)); }
-	uint64_t GetSize() const { return m_Size; }
-
-	VkBuffer GetBuffer() const { return m_Buffer; }
-	VmaAllocation GetAllocation() const { return m_Allocation; }
-private:
-	uint64_t m_Size = 0;
-
-	VkBuffer m_Buffer = VK_NULL_HANDLE;
-	VmaAllocation m_Allocation = VK_NULL_HANDLE;
-};
-
-class UniformBuffer
-{
-public:
-	void Create(uint32_t size);
-	void Destroy();
-
-	void SetData(const void* data, uint32_t size, uint32_t offset = 0);
-
-	VkBuffer GetBuffer() const { return m_Buffer; }
-	VkDeviceAddress GetDeviceAddress() const { return m_DeviceAddress; }
-
-	uint64_t GetSize() const { return m_Size; }
-private:
-	VkBuffer m_Buffer = VK_NULL_HANDLE;
-	VmaAllocation m_Allocation = VK_NULL_HANDLE;
-
-	VkDeviceAddress m_DeviceAddress = 0;
-
-	uint32_t m_Size = 0;
-};
-
-class StorageBuffer
-{
-public:
-	void Create(VkDeviceSize size);
+	void Create(const BufferSpecification& specification);
 	void Destroy();
 
 	void SetData(const void* data, VkDeviceSize size, VkDeviceSize offset = 0);
 
-	VkBuffer GetBuffer() const { return m_Buffer; }
+	VkBuffer GetHandle() const { return m_Handle; }
+
+	VmaAllocation GetAllocation() const { return m_Allocation; }
 	VkDeviceAddress GetDeviceAddress() const { return m_DeviceAddress; }
+	VkDeviceSize GetSize() const { return m_Specification.Size; }
+	BufferUsage GetUsage() const { return m_Specification.Usage; }
+	BufferMemory GetMemory() const { return m_Specification.Memory; }
 
-	VkDeviceSize GetSize() const { return m_Size; }
+	const BufferSpecification& GetSpecification() const { return m_Specification; }
 
-	bool IsValid() const { return m_Buffer != VK_NULL_HANDLE; }
+	bool IsValid() const { return m_Handle != VK_NULL_HANDLE; }
 private:
-	VkBuffer m_Buffer = VK_NULL_HANDLE;
+	BufferSpecification m_Specification{};
+
+	VkBuffer m_Handle = VK_NULL_HANDLE;
 	VmaAllocation m_Allocation = VK_NULL_HANDLE;
 
 	VkDeviceAddress m_DeviceAddress = 0;
 
-	VkDeviceSize m_Size = 0;
+	void* m_MappedData = nullptr;
 };

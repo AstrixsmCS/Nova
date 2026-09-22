@@ -196,26 +196,24 @@ bool ImGuiLayer::UploadFontTexture()
 	if (!pixels || width <= 0 || height <= 0)
 		return false;
 
-	const TextureSpecification specification
+	m_FontTexture = std::make_shared<Texture>();
+	m_FontTexture->Create(
 	{
-		.DebugName    = "ImGui Font Atlas",
+		.Type         = TextureType::Texture2D,
 		.Format       = Format::RGBA8_UNorm,
+		.Size         = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 },
+		.NumLayers    = 1,
+		.NumMipLevels = 1,
+		.Usage        = TextureUsageBits_Sampled,
+		.Data         = pixels,
 		.GenerateMips = false,
-		.Size =
-		{
-			.Width  = static_cast<uint32_t>(width),
-			.Height = static_cast<uint32_t>(height),
-		}
-	};
-
-	m_FontTexture = std::make_shared<Texture2D>();
-	m_FontTexture->Create(specification, pixels);
+		.DebugName    = "ImGui Font Atlas"
+	});
 
 	if (!m_FontTexture->IsValid())
 		return false;
 
 	io.Fonts->SetTexID(static_cast<ImTextureID>(m_FontTexture->GetBindlessIndex()));
-
 	return true;
 }
 
@@ -230,7 +228,13 @@ void ImGuiLayer::UploadGeometry(FrameBuffers& frame, const ImDrawData& drawData)
 	{
 		const uint64_t capacity = std::max(InitialVertexBufferSize, vertexBytes * 2);
 		frame.Vertices.Destroy();
-		frame.Vertices.Create(capacity, VertexBufferUsage::Dynamic);
+		frame.Vertices.Create(
+		{
+			.DebugName = "ImGui Vertex Buffer",
+			.Usage     = BufferUsage::Vertex,
+			.Memory    = BufferMemory::HostVisible,
+			.Size      = capacity
+		});
 		frame.VertexCapacity = capacity;
 	}
 
@@ -238,7 +242,13 @@ void ImGuiLayer::UploadGeometry(FrameBuffers& frame, const ImDrawData& drawData)
 	{
 		const uint64_t capacity = std::max(InitialIndexBufferSize, indexBytes * 2);
 		frame.Indices.Destroy();
-		frame.Indices.Create(capacity);
+		frame.Indices.Create(
+		{
+			.DebugName = "ImGui Index Buffer",
+			.Usage     = BufferUsage::Index,
+			.Memory    = BufferMemory::HostVisible,
+			.Size      = capacity
+		});
 		frame.IndexCapacity = capacity;
 	}
 
@@ -265,8 +275,7 @@ void ImGuiLayer::UploadGeometry(FrameBuffers& frame, const ImDrawData& drawData)
 
 // ---- Render state setup ----------------------------------------------------
 
-void ImGuiLayer::SetupRenderState(CommandBuffer& cmd, const FrameBuffers& frame,
-								  const ImDrawData& drawData, VkExtent2D extent)
+void ImGuiLayer::SetupRenderState(CommandBuffer& cmd, const FrameBuffers& frame, const ImDrawData& drawData, VkExtent2D extent)
 {
 	m_Shader->Bind(cmd);
 	cmd.SetGraphicsState(m_State, 1);
@@ -293,11 +302,10 @@ void ImGuiLayer::SetupRenderState(CommandBuffer& cmd, const FrameBuffers& frame,
 	vkCmdSetScissorWithCount(cmd.GetHandle(), 1, &scissor);
 
 	const VkDescriptorSet descriptorSet = Descriptor::GetSet();
-	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-							m_Shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, m_Shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
-	cmd.BindVertexBuffer(frame.Vertices.GetBuffer());
-	cmd.BindIndexBuffer(frame.Indices.GetBuffer(), ImGuiIndexFormat);
+	cmd.BindVertexBuffer(frame.Vertices.GetHandle());
+	cmd.BindIndexBuffer(frame.Indices.GetHandle(), ImGuiIndexFormat);
 
 	const glm::vec2 scale
 	{

@@ -71,29 +71,39 @@ public:
 		assert(destination != VK_NULL_HANDLE);
 		assert(data);
 		assert(size > 0);
-		assert(size <= STAGING_SIZE);
+		assert(size <= STAGING_SIZE && "Upload size exceeds staging buffer capacity.");
 
 		std::memcpy(m_MappedData, data, static_cast<size_t>(size));
 
 		Context::Get().ImmediateSubmit([&](VkCommandBuffer commandBuffer)
 		{
-			const VkBufferCopy copyRegion
+			const VkBufferCopy2 region
 			{
+				.sType     = VK_STRUCTURE_TYPE_BUFFER_COPY_2,
 				.srcOffset = 0,
 				.dstOffset = destinationOffset,
-				.size = size
+				.size      = size
 			};
 
-			vkCmdCopyBuffer(commandBuffer, m_StagingBuffer, destination, 1, &copyRegion);
+			const VkCopyBufferInfo2 copyInfo
+			{
+				.sType       = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+				.srcBuffer   = m_StagingBuffer,
+				.dstBuffer   = destination,
+				.regionCount = 1,
+				.pRegions    = &region
+			};
+
+			vkCmdCopyBuffer2(commandBuffer, &copyInfo);
 		});
 	}
 
-	void UploadImage(VkImage destination, const void* data, VkDeviceSize size, const VkBufferImageCopy& copyRegion, const VkImageSubresourceRange& subresourceRange, VkImageLayout finalLayout)
+	void UploadImage(VkImage destination, const void* data, VkDeviceSize size, const VkBufferImageCopy2& copyRegion, const VkImageSubresourceRange& subresourceRange, VkImageLayout finalLayout)
 	{
 		assert(destination != VK_NULL_HANDLE);
 		assert(data);
 		assert(size > 0);
-		assert(size <= STAGING_SIZE);
+		assert(size <= STAGING_SIZE && "Upload size exceeds staging buffer capacity.");
 
 		std::memcpy(m_MappedData, data, static_cast<size_t>(size));
 
@@ -101,50 +111,60 @@ public:
 		{
 			const VkImageMemoryBarrier2 preCopy
 			{
-				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-				.srcStageMask = VK_PIPELINE_STAGE_2_NONE,
-				.srcAccessMask = VK_ACCESS_2_NONE,
-				.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT,
-				.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask        = VK_PIPELINE_STAGE_2_NONE,
+				.srcAccessMask       = VK_ACCESS_2_NONE,
+				.dstStageMask        = VK_PIPELINE_STAGE_2_COPY_BIT,
+				.dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				.image = destination,
-				.subresourceRange = subresourceRange
+				.image               = destination,
+				.subresourceRange    = subresourceRange
 			};
 
 			const VkDependencyInfo preCopyDependency
 			{
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 				.imageMemoryBarrierCount = 1,
-				.pImageMemoryBarriers = &preCopy
+				.pImageMemoryBarriers    = &preCopy
 			};
 
 			vkCmdPipelineBarrier2(commandBuffer, &preCopyDependency);
 
-			vkCmdCopyBufferToImage(commandBuffer, m_StagingBuffer, destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+			const VkCopyBufferToImageInfo2 copyInfo
+			{
+				.sType          = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
+				.srcBuffer      = m_StagingBuffer,
+				.dstImage       = destination,
+				.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.regionCount    = 1,
+				.pRegions       = &copyRegion
+			};
+
+			vkCmdCopyBufferToImage2(commandBuffer, &copyInfo);
 
 			const VkImageMemoryBarrier2 postCopy
 			{
-				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-				.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT,
-				.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-				.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT,
-				.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				.newLayout = finalLayout,
+				.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask        = VK_PIPELINE_STAGE_2_COPY_BIT,
+				.srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				.dstStageMask        = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+				.dstAccessMask       = VK_ACCESS_2_MEMORY_READ_BIT,
+				.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.newLayout           = finalLayout,
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				.image = destination,
-				.subresourceRange = subresourceRange
+				.image               = destination,
+				.subresourceRange    = subresourceRange
 			};
 
 			const VkDependencyInfo postCopyDependency
 			{
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 				.imageMemoryBarrierCount = 1,
-				.pImageMemoryBarriers = &postCopy
+				.pImageMemoryBarriers    = &postCopy
 			};
 
 			vkCmdPipelineBarrier2(commandBuffer, &postCopyDependency);
