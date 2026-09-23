@@ -29,8 +29,22 @@ static_assert(sizeof(CameraUniforms) == 144);
 struct DirectionalLight
 {
 	glm::vec3 Direction { -1.0f, -1.0f, -1.0f };
-	glm::vec3 Color     {  1.0f,  1.0f,  1.0f };
-	float     Intensity = 3.0f;
+	glm::vec3 Radiance  { 1.0f, 1.0f, 1.0f };
+	float     Intensity = 1.0f;
+};
+
+//   Albedo       RGBA8_SRGB         rgb = base color,          a = ambient occlusion (alpha is always linear)
+//   Normal       RG16_Float         xy = octahedral-encoded world-space normal
+//   Material     RGBA8_UNorm        r = unused, g = roughness, b = metallic (glTF metallicRoughness packing)
+//   Emissive     RGBA16_Float       rgb = emitted radiance,    a = unused
+//   DepthStencil D32_Float_S8_UInt  depth sampled by the lighting pass, stencil reserved
+struct GBuffer
+{
+	Texture Albedo;
+	Texture Normal;
+	Texture Material;
+	Texture Emissive;
+	Texture DepthStencil;
 };
 
 class EditorApplication final : public Application
@@ -45,19 +59,38 @@ protected:
 	void OnShutdown()       override;
 
 private:
-	void CreateDepthImage(uint32_t width, uint32_t height);
+	void CreateRendererResources();
+	void DestroyRendererResources();
+
+	void CreateRenderTargets(uint32_t width, uint32_t height);
+	void DestroyRenderTargets();
+
+	void UpdateCamera(Timestep ts);
+
+	void GeometryPass(CommandBuffer& commandBuffer, VkExtent2D extent);
+	void LightingPass(CommandBuffer& commandBuffer, VkExtent2D extent);
+	void CompositePass(CommandBuffer& commandBuffer, VkExtent2D extent);
+
 	void DrawMesh(CommandBuffer& commandBuffer, const Mesh& mesh);
 
 private:
-	std::shared_ptr<Shader> m_GeometryShader;
-	GraphicsState           m_GeometryState;
-	Material                m_GeometryMaterial;
-
-	Mesh             m_Mesh;
+	Mesh m_Mesh;
+	Camera m_Camera;
 	DirectionalLight m_DirectionalLight;
 
-	Camera                                            m_Camera;
 	std::array<Buffer, Renderer::GetFramesInFlight()> m_CameraBuffers;
 
-	Texture m_DepthImage;
+	std::shared_ptr<Shader> m_GBufferShader;
+	GraphicsState           m_GBufferState;
+	Material                m_GBufferMaterial;
+	GBuffer                 m_GBuffer;
+
+	std::shared_ptr<Shader> m_LightingShader;
+	Material                m_LightingMaterial;
+
+	Texture m_HDRColor;
+
+	std::shared_ptr<Shader> m_CompositeShader;
+	GraphicsState           m_CompositeState;
+	Material                m_CompositeMaterial;
 };
